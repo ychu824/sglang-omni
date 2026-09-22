@@ -145,9 +145,17 @@ _AUK_BENCHMARK_PROFILE = _ModelBenchmarkProfile(
     },
     forward_sglang_engine=False,
 )
+# note (Yucheng Hu): Fun-CosyVoice3 caps generation at 20x the target text
+# token count unless the request carries an explicit max_new_tokens, so the
+# generic 2048 default would let a runaway generation run to the full 2048
+# tokens (about 82 s of audio) and skew the whole run.
+_FUN_COSYVOICE3_BENCHMARK_PROFILE = _ModelBenchmarkProfile(
+    argument_defaults={"max_new_tokens": None},
+)
 _MODEL_BENCHMARK_PROFILES: dict[str, _ModelBenchmarkProfile] = {
     "auk": _AUK_BENCHMARK_PROFILE,
     "auk-flash": _AUK_BENCHMARK_PROFILE,
+    "fun-cosyvoice3-0.5b-2512": _FUN_COSYVOICE3_BENCHMARK_PROFILE,
 }
 
 
@@ -819,7 +827,16 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-dir", type=str, default="results/tts_seedtts")
     parser.add_argument("--max-samples", type=int, default=None)
     parser.add_argument("--sample-offset", type=int, default=0)
-    parser.add_argument("--max-new-tokens", type=int, default=2048)
+    parser.add_argument(
+        "--max-new-tokens",
+        type=int,
+        default=2048,
+        help=(
+            "Generation length cap sent with every request. Fun-CosyVoice3 omits "
+            "it by default so the server applies the model's own text-length "
+            "contract; pass a value to override that contract."
+        ),
+    )
     parser.add_argument(
         "--token-count",
         type=_parse_token_count,
