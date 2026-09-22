@@ -2,14 +2,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import huggingface_hub
-import yaml
 
 from sglang_omni.utils.checkpoint import resolve_checkpoint
-
-REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def test_resolve_checkpoint_returns_local_directory(tmp_path) -> None:
@@ -119,11 +114,12 @@ def test_local_model_path_skips_snapshot_resolution(monkeypatch, tmp_path) -> No
     assert config_cls is DotsTTSPipelineConfig
 
 
-def test_dots_tts_canonical_config_pins_snapshot_revision() -> None:
-    config = yaml.safe_load(
-        (REPO_ROOT / "examples" / "configs" / "dots_tts.yaml").read_text()
-    )
-    repo_id, _, revision = str(config["model_path"]).partition("@")
+def test_dots_tts_canonical_recipe_pins_snapshot_revision() -> None:
+    from tests.unit_test.config.legacy_recipes import RECIPES_BY_FILE
+
+    recipe = RECIPES_BY_FILE["dots_tts.yaml"]
+    assert recipe.model_path in recipe.argv
+    repo_id, _, revision = recipe.model_path.partition("@")
 
     assert repo_id == "dots-studio/dots.tts-mf"
     assert len(revision) == 40

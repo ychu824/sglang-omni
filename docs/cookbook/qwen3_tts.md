@@ -67,7 +67,6 @@ while the `tts_engine` captures CUDA graphs.
 # 0.6B
 sgl-omni serve \
   --model-path Qwen/Qwen3-TTS-12Hz-0.6B-Base \
-  --config examples/configs/qwen3_tts_0_6b.yaml \
   --port 8000
 ```
 
@@ -75,7 +74,6 @@ sgl-omni serve \
 # 1.7B
 sgl-omni serve \
   --model-path Qwen/Qwen3-TTS-12Hz-1.7B-Base \
-  --config examples/configs/qwen3_tts_1_7b.yaml \
   --port 8000
 ```
 
@@ -92,16 +90,46 @@ configurations retain a conservative single-request baseline.
 # 0.6B Base
 sgl-omni serve \
   --model-path Qwen/Qwen3-TTS-12Hz-0.6B-Base \
-  --config examples/configs/qwen3_tts_0_6b_npu.yaml \
+  --preprocessing.factory.max_concurrency 1 \
+  --tts_engine.gpu 0 \
+  --tts_engine.tp_size 1 \
+  --tts_engine.factory.dtype bfloat16 \
+  --tts_engine.factory.attn_implementation sdpa \
+  --tts_engine.engine.attention_backend ascend \
+  --tts_engine.engine.disable_cuda_graph true \
+  --tts_engine.engine.disable_overlap_schedule true \
+  --tts_engine.engine.enable_torch_compile false \
+  --tts_engine.engine.torch_compile_max_bs 1 \
+  --tts_engine.engine.max_prefill_tokens 4096 \
+  --tts_engine.engine.sampling_backend pytorch \
+  --tts_engine.engine.max_running_requests 16 \
+  --tts_engine.engine.max_queued_requests 16 \
+  --tts_engine.engine.mem_fraction_static 0.70 \
+  --vocoder.gpu 0 \
+  --vocoder.factory.dtype bfloat16 \
+  --vocoder.factory.attn_implementation sdpa \
+  --vocoder.factory.max_batch_size 8 \
+  --vocoder.factory.initial_max_batch_size 1 \
+  --vocoder.factory.followup_max_batch_size 1 \
   --port 8000
 ```
 
-Use `qwen3_tts_1_7b_npu.yaml`, `qwen3_tts_0_6b_customvoice_npu.yaml`, or
-`qwen3_tts_1_7b_voicedesign_npu.yaml` for the other supported checkpoints.
-The 0.6B and 1.7B files intentionally have separate `mem_fraction_static`
-starting values. Calibrate configurations that retain the single-request
-baseline on the target NPU before increasing `max_running_requests` or any
-vocoder batch limit.
+The other supported checkpoints use the same flags with their own
+concurrency, queue, memory and vocoder-batch values:
+
+| Checkpoint | `max_running_requests` | `max_queued_requests` | `mem_fraction_static` | vocoder `max_batch_size` |
+|---|---|---|---|---|
+| `Qwen/Qwen3-TTS-12Hz-0.6B-Base` | 16 | 16 | 0.70 | 8 |
+| `Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice` | 1 | 8 | 0.70 | 1 |
+| `Qwen/Qwen3-TTS-12Hz-1.7B-Base` | 1 | 8 | 0.60 | 1 |
+| `Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign` | 1 | 8 | 0.60 | 1 |
+
+The 0.6B and 1.7B profiles intentionally have separate `mem_fraction_static`
+starting values. Calibrate profiles that retain the single-request baseline on
+the target NPU before increasing `max_running_requests` or any vocoder batch
+limit. To keep a profile as a file, save it once with `sgl-omni config resolve
+<the same arguments> --show config > qwen3_tts_npu.yaml` and launch with
+`--config qwen3_tts_npu.yaml`.
 
 ### Deterministic Inference
 
@@ -164,7 +192,6 @@ together:
 ```bash
 sgl-omni serve \
   --model-path Qwen/Qwen3-TTS-12Hz-0.6B-Base \
-  --config examples/configs/qwen3_tts_0_6b.yaml \
   --tts_engine.engine.max_running_requests 32 \
   --tts_engine.engine.max_queued_requests 16 \
   --port 8000
@@ -212,7 +239,6 @@ configuration:
 ```bash
 sgl-omni serve \
   --model-path Qwen/Qwen3-TTS-12Hz-1.7B-Base \
-  --config examples/configs/qwen3_tts_1_7b.yaml \
   --tts_engine.factory.prefill_coalesce_requests 2 \
   --tts_engine.factory.prefill_coalesce_wait_ms 30 \
   --port 8000
@@ -484,10 +510,10 @@ only the first chunk.
 
 ## Model Variants
 
-| Checkpoint | Parameters | Config |
+| Checkpoint | Parameters | Launch |
 |---|---|---|
-| `Qwen/Qwen3-TTS-12Hz-0.6B-Base` | 0.6B | `examples/configs/qwen3_tts_0_6b.yaml` |
-| `Qwen/Qwen3-TTS-12Hz-1.7B-Base` | 1.7B | `examples/configs/qwen3_tts_1_7b.yaml` |
+| `Qwen/Qwen3-TTS-12Hz-0.6B-Base` | 0.6B | `--model-path Qwen/Qwen3-TTS-12Hz-0.6B-Base` |
+| `Qwen/Qwen3-TTS-12Hz-1.7B-Base` | 1.7B | `--model-path Qwen/Qwen3-TTS-12Hz-1.7B-Base` |
 
 Both expose an identical request API. The 1.7B model has higher capacity (typically better
 quality) at a larger memory and latency cost; the 0.6B model is lighter and faster.
@@ -496,10 +522,10 @@ quality) at a larger memory and latency cost; the 0.6B model is lighter and fast
 
 CustomVoice generates speech with built-in speakers through the same pipeline. Use it without reference audio; omit `ref_audio`, `ref_text`, `references`, and `x_vector_only_mode`. Omit `task_type` or set it to `CustomVoice`.
 
-| Checkpoint | Config | Instruction guidance |
+| Checkpoint | Launch | Instruction guidance |
 |---|---|---|
-| `Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice` | `examples/configs/qwen3_tts_0_6b_customvoice.yaml` | Accepted for backward compatibility, but not recommended |
-| `Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice` | `examples/configs/qwen3_tts_1_7b_customvoice.yaml` | Supported |
+| `Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice` | `--model-path Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice` | Accepted for backward compatibility, but not recommended |
+| `Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice` | `--model-path Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice` | Supported |
 
 Both released checkpoints provide `Serena`, `Vivian`, `Uncle_Fu`, `Ryan`, `Aiden`, `Ono_Anna`, `Sohee`, `Eric`, and `Dylan`. Speaker matching is case-insensitive; an omitted or `default` voice selects `Vivian`. `GET /v1/audio/voices` lists `default` and the served checkpoint's speakers. Unknown speakers or supplied cloning fields return HTTP 400; uploaded reference voices are not used for CustomVoice synthesis.
 
@@ -509,16 +535,15 @@ Both sizes support buffered speech, batch requests, incremental HTTP PCM output,
 
 **Eric/Dylan language behavior:** For both sizes, `language: Auto` selects Eric's Sichuan dialect token or Dylan's Beijing dialect token. An explicit language takes precedence: `language: Chinese` keeps the Chinese language token. This preserves existing SGLang-Omni behavior and differs from the QwenLM/Qwen3-TTS Python wrapper (`qwen-tts` 0.1.1), which also selects dialect tokens for `Chinese`. This is a conditioning choice, not a guarantee that the speaker's accent disappears.
 
-Start the 1.7B checkpoint with its matching config:
+Start the 1.7B checkpoint:
 
 ```bash
 sgl-omni serve \
   --model-path Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice \
-  --config examples/configs/qwen3_tts_1_7b_customvoice.yaml \
   --port 8000
 ```
 
-Then select a built-in speaker in the request. For 0.6B, use its model/config pair from the table and omit `instructions`.
+Then select a built-in speaker in the request. For 0.6B, use its model path from the table and omit `instructions`.
 
 ```bash
 curl -X POST http://localhost:8000/v1/audio/speech \

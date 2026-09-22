@@ -27,14 +27,19 @@ thinker, so greedy outputs of the bf16 MoE can differ from the serial default;
 keep the default when comparing accuracy across runs.
 
 For MMSU-style audio-input / text-output benchmarks with short requests, use
-the fused text-path config so the full text path stays inside one worker
-process:
+the text pipeline (`--variant text`, the same selection as `--text-only`) so
+the full text path stays inside one worker process, with the budgets and the
+running-request cap the benchmark was measured with:
 
 ```bash
 sgl-omni serve \
   --model-path Qwen/Qwen3-Omni-30B-A3B-Instruct \
-  --config examples/configs/qwen3_omni_mmsu.yaml \
-  --text-only \
+  --variant text \
+  --name qwen3-omni-mmsu \
+  --image_encoder.gpu_memory_fraction 0.025 \
+  --audio_encoder.gpu_memory_fraction 0.025 \
+  --thinker.gpu_memory_fraction 0.75 \
+  --thinker.engine.max_running_requests 4 \
   --port 8008
 ```
 
@@ -203,21 +208,60 @@ isolate the early-prefix setting.
 
 ### Launch the Server
 
-Speech mode can run as a colocated one-GPU worker using the colocated config:
+Speech mode can run as a colocated one-GPU worker: `--variant
+speech-colocated` selects the colocated topology, and the per-stage
+`gpu_memory_fraction` flags carry the memory profile calibrated for the GPU.
+On a single H20 (about 6% of device memory stays outside stage budgets for
+graph capture, workspaces and allocator fragmentation):
 
 ```bash
 sgl-omni serve \
   --model-path Qwen/Qwen3-Omni-30B-A3B-Instruct \
-  --config examples/configs/qwen3_omni_colocated_h20.yaml \
-  --colocate \
+  --variant speech-colocated \
+  --name qwen3-omni-colocated-h20 \
+  --image_encoder.gpu_memory_fraction 0.025 \
+  --audio_encoder.gpu_memory_fraction 0.025 \
+  --thinker.gpu_memory_fraction 0.75 \
+  --talker_ar.gpu_memory_fraction 0.12 \
+  --code2wav.gpu_memory_fraction 0.02 \
   --port 8008
 ```
 
-Use `examples/configs/qwen3_omni_colocated_h200.yaml` on single-H200 workers.
+On a single H200:
+
+```bash
+sgl-omni serve \
+  --model-path Qwen/Qwen3-Omni-30B-A3B-Instruct \
+  --variant speech-colocated \
+  --name qwen3-omni-colocated-h200 \
+  --image_encoder.gpu_memory_fraction 0.017 \
+  --audio_encoder.gpu_memory_fraction 0.017 \
+  --thinker.gpu_memory_fraction 0.769 \
+  --talker_ar.gpu_memory_fraction 0.123 \
+  --code2wav.gpu_memory_fraction 0.014 \
+  --port 8008
+```
+
+The [Qwen3-Omni cookbook](../cookbook/qwen3_omni.md#server-configuration)
+generates these commands for every mode, topology and precision. To keep a
+profile as a file, save the resolved configuration once and launch from it:
+
+```bash
+sgl-omni config resolve --model-path Qwen/Qwen3-Omni-30B-A3B-Instruct \
+  --variant speech-colocated \
+  --name qwen3-omni-colocated-h20 \
+  --image_encoder.gpu_memory_fraction 0.025 \
+  --audio_encoder.gpu_memory_fraction 0.025 \
+  --thinker.gpu_memory_fraction 0.75 \
+  --talker_ar.gpu_memory_fraction 0.12 \
+  --code2wav.gpu_memory_fraction 0.02 \
+  --show config > qwen3_omni_colocated_h20.yaml
+sgl-omni serve --config qwen3_omni_colocated_h20.yaml --port 8008
+```
 
 Exact-shape CUDA Graph replay is enabled by default for Qwen3-Omni Code2Wav.
-The default stage config supplies a 2% typed GPU memory budget; colocated
-example configs override it with their hardware-specific budget.
+The default stage config supplies a 2% typed GPU memory budget; the colocated
+profiles above override it with their hardware-specific budget.
 
 To disable replay, set it on the stage in the YAML config:
 
@@ -491,19 +535,22 @@ SGLang-Omni can also serve native FP8 Qwen3-Omni checkpoints. Native FP8 uses
 the checkpoint quantization config when loading the thinker and talker AR stages,
 while keeping the same Qwen3-Omni request format shown below.
 
-For one-GPU H100/H20 colocated launch, use the FP8 colocated config:
+For one-GPU H100/H20 colocated launch, use the FP8 checkpoint with the FP8
+colocated memory profile:
 
 ```bash
 sgl-omni serve \
-  --config examples/configs/qwen3_omni_fp8_colocated.yaml \
-  --colocate \
+  --model-path marksverdhei/Qwen3-Omni-30B-A3B-FP8 \
+  --variant speech-colocated \
+  --name qwen3-omni-fp8-colocated \
+  --image_encoder.gpu_memory_fraction 0.025 \
+  --audio_encoder.gpu_memory_fraction 0.025 \
+  --thinker.gpu_memory_fraction 0.75 \
+  --talker_ar.gpu_memory_fraction 0.12 \
+  --code2wav.gpu_memory_fraction 0.02 \
   --model-name qwen3-omni \
   --port 8008
 ```
-
-The config file contains the FP8 checkpoint path:
-`marksverdhei/Qwen3-Omni-30B-A3B-FP8`. You can still pass `--model-path` to
-override the config value.
 
 The FP8 path keeps dense FP8 GEMM on SGLang `auto` and defaults native FP8 MoE
 to CUTLASS when supported. For Qwen3-Omni pipeline launches,
@@ -515,8 +562,14 @@ To opt back into SGLang's all-M DeepGEMM precompile behavior:
 
 ```bash
 SGLANG_JIT_DEEPGEMM_PRECOMPILE=1 sgl-omni serve \
-  --config examples/configs/qwen3_omni_fp8_colocated.yaml \
-  --colocate \
+  --model-path marksverdhei/Qwen3-Omni-30B-A3B-FP8 \
+  --variant speech-colocated \
+  --name qwen3-omni-fp8-colocated \
+  --image_encoder.gpu_memory_fraction 0.025 \
+  --audio_encoder.gpu_memory_fraction 0.025 \
+  --thinker.gpu_memory_fraction 0.75 \
+  --talker_ar.gpu_memory_fraction 0.12 \
+  --code2wav.gpu_memory_fraction 0.02 \
   --model-name qwen3-omni \
   --port 8008
 ```
@@ -529,15 +582,20 @@ reducing memory footprint compared to BF16 or FP8.
 
 The public AutoRound checkpoint quantizes the thinker transformer layers. In
 speech mode, the talker and code2wav stages load as BF16 from the same
-checkpoint. For one-GPU H100/H20 colocated launch, use the colocated config
-with the AutoRound checkpoint:
+checkpoint. For one-GPU H100/H20 colocated launch, use the H20 colocated
+memory profile with the AutoRound checkpoint:
 
 ```bash
 sgl-omni serve \
-  --config examples/configs/qwen3_omni_colocated_h20.yaml \
-  --colocate \
-  --model-name qwen3-omni \
   --model-path Intel/Qwen3-Omni-30B-A3B-Instruct-int4-AutoRound \
+  --variant speech-colocated \
+  --name qwen3-omni-colocated-h20 \
+  --image_encoder.gpu_memory_fraction 0.025 \
+  --audio_encoder.gpu_memory_fraction 0.025 \
+  --thinker.gpu_memory_fraction 0.75 \
+  --talker_ar.gpu_memory_fraction 0.12 \
+  --code2wav.gpu_memory_fraction 0.02 \
+  --model-name qwen3-omni \
   --port 8008
 ```
 

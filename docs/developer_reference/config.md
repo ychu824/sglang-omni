@@ -152,10 +152,43 @@ expansion; two `shared` entries writing one leaf conflict.
 SGLang engine stage's `engine.mem_fraction_static`. It is the one convenience
 flag left; a dotted per-stage spelling overrides it without being a conflict.
 
+**Selecting a pipeline** — `--model-path` resolves the model's architecture
+from its checkpoint metadata and picks the model's default config class. A
+model module may declare `Variants`, alternative topologies of the same
+checkpoint; `--variant <key>` selects one (Qwen3-Omni: `text`, `speech`,
+`speech-colocated`; MOSS-TTS: `default`, `single_process`; MOSS-TTS Local:
+`default`, `colocated`, `split`). The key is matched exactly and an unknown one
+is refused with the declared keys. `--text-only` remains a spelling of
+`--variant text`; the two agree or conflict loudly. A config file's
+`config_cls` already selects the topology, so `--variant` is refused next to
+`--config`, and next to the older `--colocate` flag (use `--variant
+speech-colocated`). Per-stage settings are never part of the selection: they
+stay dotted flags or `stages:` entries on the selected pipeline.
+
+```bash
+sgl-omni serve --model-path Qwen/Qwen3-Omni-30B-A3B-Instruct \
+    --variant speech-colocated \
+    --thinker.gpu_memory_fraction 0.75
+```
+
 **Inspection** — `sgl-omni config resolve` prints the configuration a launch
 with the same arguments would use (`--show config|diff|provenance`), and
 `sgl-omni config explain PATH` names the source that set a value and what it
-overrode. Both run the same merge as `serve`.
+overrode. Both run the same merge as `serve`, including `--variant`.
+
+**Keeping a recipe as a file** — `sgl-omni config resolve ... --show config`
+prints the resolved pipeline in the config-file shape, so a long command line
+becomes a file once and launches with `--config`:
+
+```bash
+sgl-omni config resolve --model-path OpenMOSS-Team/MOSS-TTS-v1.5 \
+    --variant single_process --tts_engine.engine.mem_fraction_static 0.70 \
+    --show config > moss_tts_32gb.yaml
+sgl-omni serve --config moss_tts_32gb.yaml
+```
+
+`sgl-omni config view` and `config export` print only the defaults of the
+selected model or variant; they do not accept overrides.
 
 ## `StageConfig` Reference
 

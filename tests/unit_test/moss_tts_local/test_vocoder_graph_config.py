@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 
 import pytest
 import torch
 
 from sglang_omni.config.manager import ConfigManager
 from sglang_omni.models.moss_tts_local import config as config_module
+from tests.unit_test.config.legacy_recipes import RECIPES_BY_FILE, legacy_config
 
 
 @pytest.mark.parametrize(
@@ -107,12 +107,8 @@ def test_unset_vocoder_graph_survives_config_rebuild(monkeypatch) -> None:
 
 def test_vocoder_graph_yaml_and_cli_do_not_change_ar_settings(monkeypatch) -> None:
     monkeypatch.setattr(config_module, "uses_rocm_wsl_dxg", lambda: False)
-    example = (
-        Path(__file__).resolve().parents[3]
-        / "examples/configs/moss_tts_local_non_streaming.yaml"
-    )
-    manager = ConfigManager.from_file(str(example))
-    config = manager.config
+    config = legacy_config(RECIPES_BY_FILE["moss_tts_local_non_streaming.yaml"])
+    manager = ConfigManager(config)
     default = config_module.MossTTSLocalPipelineConfig(model_path=config.model_path)
     assert config.stage_factory_kwargs("vocoder")["vocoder_cuda_graph"] is False
 

@@ -27,7 +27,6 @@ hf download fishaudio/s2-pro
 ```bash
 sgl-omni serve \
   --model-path fishaudio/s2-pro \
-  --config examples/configs/s2pro_tts.yaml \
   --port 8000
 ```
 

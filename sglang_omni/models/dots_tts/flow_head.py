@@ -174,7 +174,7 @@ class DotsTTSFlowHead(nn.Module):
     ) -> None:
         if self.mode != "meanflow":
             raise ValueError(
-                f"dots.tts continuous batching requires a MeanFlow checkpoint; this checkpoint is {self.mode}. Serve it with max_running_requests=1 (see examples/configs/dots_tts_soar.yaml)"
+                f"dots.tts continuous batching requires a MeanFlow checkpoint; this checkpoint is {self.mode}. Serve it with max_running_requests=1 (see the SOAR recipe in the dots.tts cookbook)"
             )
         else:
             pass

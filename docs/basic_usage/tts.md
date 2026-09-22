@@ -34,19 +34,19 @@ for details.
 
 ## Supported TTS Models
 
-| Model family | Example config | Request notes |
+| Model family | Launch | Request notes |
 |---|---|---|
-| [Fish Speech S2-Pro](../cookbook/fishaudio_s2_pro.md) | `examples/configs/s2pro_tts.yaml` | Supports plain TTS and voice cloning with `references` |
-| [Voxtral TTS](../cookbook/voxtral_tts.md) | `examples/configs/voxtral_tts.yaml` | Uses `input`, `voice`, `response_format`, and `max_new_tokens`. Use `--no-ref-audio` for SeedTTS benchmarking |
-| [Qwen3-TTS Base](../cookbook/qwen3_tts.md) | `examples/configs/qwen3_tts_0_6b.yaml`, `examples/configs/qwen3_tts_1_7b.yaml` | Requires reference audio through `ref_audio` or `references[0].audio_path`. `language` defaults to `auto` |
-| [Qwen3-TTS CustomVoice](../cookbook/qwen3_tts.md#customvoice-checkpoints) | `examples/configs/qwen3_tts_0_6b_customvoice.yaml`, `examples/configs/qwen3_tts_1_7b_customvoice.yaml` | Text-only synthesis with built-in speakers; omit `voice` for Vivian. Both sizes support streaming; use 1.7B for instruction control |
-| [Qwen3-TTS VoiceDesign](../cookbook/qwen3_tts.md) | `examples/configs/qwen3_tts_1_7b_voicedesign.yaml` | Requires `task_type="VoiceDesign"` and non-empty `instructions`. No reference audio is required |
-| [Ming-Omni-TTS](../cookbook/ming_tts.md) | `examples/configs/ming_omni_tts.yaml` | Text-only synthesis or one local reference clip with its transcript; streaming; the provided config uses TP1 |
+| [Fish Speech S2-Pro](../cookbook/fishaudio_s2_pro.md) | `--model-path fishaudio/s2-pro` | Supports plain TTS and voice cloning with `references` |
+| [Voxtral TTS](../cookbook/voxtral_tts.md) | `--model-path mistralai/Voxtral-4B-TTS-2603` | Uses `input`, `voice`, `response_format`, and `max_new_tokens`. Use `--no-ref-audio` for SeedTTS benchmarking |
+| [Qwen3-TTS Base](../cookbook/qwen3_tts.md) | `--model-path Qwen/Qwen3-TTS-12Hz-0.6B-Base` or `Qwen/Qwen3-TTS-12Hz-1.7B-Base` | Requires reference audio through `ref_audio` or `references[0].audio_path`. `language` defaults to `auto` |
+| [Qwen3-TTS CustomVoice](../cookbook/qwen3_tts.md#customvoice-checkpoints) | `--model-path Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice` or `Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice` | Text-only synthesis with built-in speakers; omit `voice` for Vivian. Both sizes support streaming; use 1.7B for instruction control |
+| [Qwen3-TTS VoiceDesign](../cookbook/qwen3_tts.md) | `--model-path Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign` | Requires `task_type="VoiceDesign"` and non-empty `instructions`. No reference audio is required |
+| [Ming-Omni-TTS](../cookbook/ming_tts.md) | `--model-path inclusionAI/Ming-omni-tts-16.8B-A3B` plus the [tuned recipe](../cookbook/ming_tts.md#server-configuration) | Text-only synthesis or one local reference clip with its transcript; streaming; the tuned recipe uses TP1 |
 | [Fun-CosyVoice3](../cookbook/fun_cosyvoice3.md) | `--model-path` only | Requires one reference audio clip via `ref_audio` or `references`. Supports zero-shot cloning, cross-lingual, instruct mode, causal streaming, and buffered speed control |
-| [MOSS-TTS](../cookbook/moss_tts.md) | `examples/configs/moss_tts.yaml` | Voice cloning via `ref_audio` or `references[0].audio_path` (+ `text`). Duration via `${token:N}` or `token_count`. Benchmark at `--max-concurrency 8` |
-| [MOSS-TTS Local](../cookbook/moss_tts_local.md) | `examples/configs/moss_tts_local.yaml` | 48 kHz stereo local-transformer MOSS-TTS; voice cloning / reference-less; streaming |
-| [Higgs TTS](../cookbook/higgs_tts.md) | `--model-path` only | Voice cloning, streaming; no example YAML required |
-| [dots.tts](../cookbook/dots_tts.md) | `examples/configs/dots_tts.yaml` (MeanFlow), `examples/configs/dots_tts_soar.yaml` (SOAR) | 48 kHz continuous-latent TTS with reference audio. MeanFlow (`dots.tts-mf`) uses continuous batching (`max_running_requests=16` by default) with engine-wide `num_steps=4` and Euler. SOAR (`dots.tts-soar`) and base (`dots.tts-base`) are flow matching and run the single-request solver with CFG at `max_running_requests=1`; both use the SOAR config. All require `ref_audio` + `ref_text`. TP1 only |
+| [MOSS-TTS](../cookbook/moss_tts.md) | `--model-path OpenMOSS-Team/MOSS-TTS-v1.5` | Voice cloning via `ref_audio` or `references[0].audio_path` (+ `text`). Duration via `${token:N}` or `token_count`. Benchmark at `--max-concurrency 8` |
+| [MOSS-TTS Local](../cookbook/moss_tts_local.md) | `--model-path OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5` | 48 kHz stereo local-transformer MOSS-TTS; voice cloning / reference-less; streaming |
+| [Higgs TTS](../cookbook/higgs_tts.md) | `--model-path` only | Voice cloning, streaming |
+| [dots.tts](../cookbook/dots_tts.md) | `--model-path dots-studio/dots.tts-mf` with the [MeanFlow recipe](../cookbook/dots_tts.md#prerequisites), `dots-studio/dots.tts-soar` with the SOAR recipe | 48 kHz continuous-latent TTS with reference audio. MeanFlow (`dots.tts-mf`) uses continuous batching (`max_running_requests=16` in the recipe) with engine-wide `num_steps=4` and Euler. SOAR (`dots.tts-soar`) and base (`dots.tts-base`) are flow matching and run the single-request solver with CFG at `max_running_requests=1`; both use the SOAR recipe. All require `ref_audio` + `ref_text`. TP1 only |
 | [ZONOS2](../cookbook/zonos2.md) | `--model-path Zyphra/zonos2` | MoE TTS, 9 DAC codebooks, voice cloning; needs Descript DAC extras (see cookbook) |
 | [AuK](../cookbook/auk.md) | `--model-path` only | `tencent/AuK` and `tencent/AuK-Flash`. Instruction-driven generation and editing at 24 kHz. Reference audio is optional; speech requires `stage_params.auk_engine.gen_seconds`. Downloads the separate Qwen2.5-Omni-3B encoder. Serial, non-streaming engine |
 
@@ -63,7 +63,6 @@ references, or data URLs.
 ```bash
 sgl-omni serve \
   --model-path fishaudio/s2-pro \
-  --config examples/configs/s2pro_tts.yaml \
   --allowed-media-domain huggingface.co \
   --allowed-media-domain cas-bridge.xethub.hf.co \
   --port 8000
@@ -75,7 +74,6 @@ Batch speech requests accept up to 32 items by default. Use
 ```bash
 sgl-omni serve \
   --model-path fishaudio/s2-pro \
-  --config examples/configs/s2pro_tts.yaml \
   --tts-batch-max-items 32 \
   --allowed-media-domain huggingface.co \
   --allowed-media-domain cas-bridge.xethub.hf.co \
@@ -87,7 +85,6 @@ For Voxtral:
 ```bash
 sgl-omni serve \
   --model-path mistralai/Voxtral-4B-TTS-2603 \
-  --config examples/configs/voxtral_tts.yaml \
   --allowed-media-domain huggingface.co \
   --allowed-media-domain cas-bridge.xethub.hf.co \
   --port 8000
@@ -98,7 +95,6 @@ For Qwen3-TTS Base:
 ```bash
 sgl-omni serve \
   --model-path Qwen/Qwen3-TTS-12Hz-0.6B-Base \
-  --config examples/configs/qwen3_tts_0_6b.yaml \
   --allowed-media-domain huggingface.co \
   --allowed-media-domain cas-bridge.xethub.hf.co \
   --port 8000
@@ -109,20 +105,18 @@ For Qwen3-TTS CustomVoice:
 ```bash
 sgl-omni serve \
   --model-path Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice \
-  --config examples/configs/qwen3_tts_1_7b_customvoice.yaml \
   --allowed-media-domain huggingface.co \
   --allowed-media-domain cas-bridge.xethub.hf.co \
   --port 8000
 ```
 
-For 0.6B CustomVoice, use `Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice` with `examples/configs/qwen3_tts_0_6b_customvoice.yaml`.
+For 0.6B CustomVoice, pass `--model-path Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice`.
 
 For Qwen3-TTS VoiceDesign:
 
 ```bash
 sgl-omni serve \
   --model-path Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign \
-  --config examples/configs/qwen3_tts_1_7b_voicedesign.yaml \
   --allowed-media-domain huggingface.co \
   --allowed-media-domain cas-bridge.xethub.hf.co \
   --port 8000
@@ -133,18 +127,34 @@ For MOSS-TTS:
 ```bash
 sgl-omni serve \
   --model-path OpenMOSS-Team/MOSS-TTS-v1.5 \
-  --config examples/configs/moss_tts.yaml \
   --allowed-media-domain huggingface.co \
   --allowed-media-domain cas-bridge.xethub.hf.co \
   --port 8000
 ```
 
-For dots.tts MeanFlow:
+For dots.tts MeanFlow, the tuned deployment (pinned checkpoint, backbone CUDA
+graph, continuous batching at 16) is the recipe in the
+[dots.tts cookbook](../cookbook/dots_tts.md#prerequisites); add the media
+domains to it:
 
 ```bash
 sgl-omni serve \
-  --model-path dots-studio/dots.tts-mf \
-  --config examples/configs/dots_tts.yaml \
+  --model-path dots-studio/dots.tts-mf@c28105adc8228143392b4e346994ff613ee48a06 \
+  --preprocessing.factory.num_steps 4 \
+  --preprocessing.factory.max_generate_length 500 \
+  --latent_engine.factory.num_steps 4 \
+  --latent_engine.factory.max_generate_length 500 \
+  --latent_engine.factory.optimize true \
+  --latent_engine.engine.mem_fraction_static 0.20 \
+  --latent_engine.engine.max_running_requests 16 \
+  --latent_engine.engine.disable_cuda_graph false \
+  --latent_engine.engine.cuda_graph_max_bs 16 \
+  --reference_encode.factory.max_concurrency 8 \
+  --reference_encode.factory.max_batch_size 1 \
+  --reference_encode.factory.max_batch_wait_ms 4 \
+  --vocoder.factory.optimize true \
+  --vocoder.factory.max_batch_size 4 \
+  --vocoder.factory.max_batch_wait_ms 2 \
   --allowed-media-domain huggingface.co \
   --allowed-media-domain cas-bridge.xethub.hf.co \
   --allowed-media-domain us.aws.cdn.hf.co \
@@ -156,26 +166,36 @@ For dots.tts SOAR:
 ```bash
 sgl-omni serve \
   --model-path dots-studio/dots.tts-soar \
-  --config examples/configs/dots_tts_soar.yaml \
+  --preprocessing.factory.num_steps 10 \
+  --preprocessing.factory.max_generate_length 500 \
+  --latent_engine.factory.num_steps 10 \
+  --latent_engine.factory.max_generate_length 500 \
+  --latent_engine.factory.optimize true \
+  --latent_engine.engine.mem_fraction_static 0.20 \
+  --latent_engine.engine.max_running_requests 1 \
+  --latent_engine.engine.disable_cuda_graph false \
+  --latent_engine.engine.cuda_graph_max_bs 1 \
+  --vocoder.factory.optimize true \
   --allowed-media-domain huggingface.co \
   --allowed-media-domain cas-bridge.xethub.hf.co \
   --allowed-media-domain us.aws.cdn.hf.co \
   --port 8000
 ```
 
-`dots.tts-base` uses the same config; pass `--model-path dots-studio/dots.tts-base`.
+`dots.tts-base` uses the same recipe as SOAR; pass `--model-path dots-studio/dots.tts-base`.
 
 SOAR and base are flow-matching checkpoints, so they run the single-request solver
 (`max_running_requests=1`) with classifier-free guidance. Continuous batching is
 MeanFlow-only for now. `rednote-hilab/dots.tts-*` is the old org name and redirects to
 `dots-studio/dots.tts-*`; both work as `--model-path`.
 
-For Ming-Omni-TTS:
+For Ming-Omni-TTS, use the tuned recipe in the
+[Ming-Omni-TTS cookbook](../cookbook/ming_tts.md#server-configuration); the
+plain launch below serves the model defaults:
 
 ```bash
 sgl-omni serve \
   --model-path inclusionAI/Ming-omni-tts-16.8B-A3B \
-  --config examples/configs/ming_omni_tts.yaml \
   --port 8000
 ```
 

@@ -120,7 +120,7 @@ server_profiles:
     model_name: qwen3-omni
     num_workers: 2
     num_gpus_per_worker: 1
-    worker_extra_args: "--config {repo_root}/examples/configs/qwen3_omni_mmsu.yaml --text-only"
+    worker_extra_args: "--variant text --name qwen3-omni-mmsu --image_encoder.gpu_memory_fraction 0.025 --audio_encoder.gpu_memory_fraction 0.025 --thinker.gpu_memory_fraction 0.75 --thinker.engine.max_running_requests 4"
     wait_timeout: 600
     server_boot_timeout_s: 660
     router_policy: least_request
@@ -129,7 +129,7 @@ server_profiles:
     model_name: fishaudio/s2-pro
     num_workers: 2
     num_gpus_per_worker: 1
-    worker_extra_args: "--config {repo_root}/examples/configs/s2pro_tts.yaml"
+    worker_extra_args: ""
     wait_timeout: 180
     server_boot_timeout_s: 240
     router_policy: least_request

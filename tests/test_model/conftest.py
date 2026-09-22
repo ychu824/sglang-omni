@@ -123,22 +123,48 @@ QWEN3_OMNI_TP2_THINKER_MEM_FRACTION = "0.55"
 # the talker needs at least 0.2008, so 0.20 crashes intermittently.
 QWEN3_OMNI_TP2_TALKER_MEM_FRACTION = "0.21"
 QWEN3_OMNI_TP2_THINKER_MAX_SEQ_LEN = 32768
-QWEN3_OMNI_FP8_COLOCATED_CONFIG = "examples/configs/qwen3_omni_colocated_h100_fp8.yaml"
+# note (db-ol): FP8 colocated profile for the H100 video-CI router stages
+# (2 DP replicas). Distinct from the documented FP8 colocated recipe
+# (thinker 0.75): Qwen3-Omni subtracts the default encoder_mem_reserve of
+# 0.05, so the effective SGLang/KV thinker budget here is 0.50.
+QWEN3_OMNI_FP8_COLOCATED_PROFILE_ARGS = (
+    "--variant speech-colocated --name qwen3-omni-colocated-h100-fp8 "
+    "--image_encoder.gpu_memory_fraction 0.025 "
+    "--audio_encoder.gpu_memory_fraction 0.025 "
+    "--thinker.gpu_memory_fraction 0.55 "
+    "--talker_ar.gpu_memory_fraction 0.12 "
+    "--code2wav.gpu_memory_fraction 0.02"
+)
 QWEN3_OMNI_FP8_COLOCATED_VIDEO_ARGS = (
-    f"--config {QWEN3_OMNI_FP8_COLOCATED_CONFIG} --colocate "
+    f"{QWEN3_OMNI_FP8_COLOCATED_PROFILE_ARGS} "
     f"--preprocessing.factory.max_seq_len {QWEN3_OMNI_TP2_THINKER_MAX_SEQ_LEN} "
     f"--thinker.factory.max_seq_len {QWEN3_OMNI_TP2_THINKER_MAX_SEQ_LEN}"
 )
-QWEN3_OMNI_BF16_COLOCATED_CONFIG = (
-    "examples/configs/qwen3_omni_colocated_h100_bf16.yaml"
+# BF16 colocated profile for the TTS CI stage (2 DP replicas behind the
+# router), with the breakable prefill graph enabled on the thinker.
+QWEN3_OMNI_BF16_COLOCATED_PROFILE_ARGS = (
+    "--variant speech-colocated --name qwen3-omni-colocated-h100-bf16 "
+    "--image_encoder.gpu_memory_fraction 0.02 "
+    "--audio_encoder.gpu_memory_fraction 0.02 "
+    "--thinker.gpu_memory_fraction 0.78 "
+    "--talker_ar.gpu_memory_fraction 0.10 "
+    "--code2wav.gpu_memory_fraction 0.02 "
+    "--thinker.engine.cuda_graph_backend_prefill breakable "
+    "--thinker.engine.cuda_graph_max_bs_prefill 2048"
 )
 QWEN3_OMNI_BF16_COLOCATED_VIDEO_ARGS = (
-    f"--config {QWEN3_OMNI_BF16_COLOCATED_CONFIG} --colocate "
+    f"{QWEN3_OMNI_BF16_COLOCATED_PROFILE_ARGS} "
     f"--preprocessing.factory.max_seq_len {QWEN3_OMNI_TP2_THINKER_MAX_SEQ_LEN} "
     f"--thinker.factory.max_seq_len {QWEN3_OMNI_TP2_THINKER_MAX_SEQ_LEN}"
 )
-QWEN3_OMNI_BF16_THINKER_CONFIG = "examples/configs/qwen3_omni_mmmu_h100.yaml"
-QWEN3_OMNI_BF16_THINKER_ARGS = f"--config {QWEN3_OMNI_BF16_THINKER_CONFIG}"
+# BF16 thinker-only profile for the MMMU CI stage (2 DP replicas behind the
+# router).
+QWEN3_OMNI_BF16_THINKER_ARGS = (
+    "--variant text --name qwen3-omni-mmmu-h100 "
+    "--image_encoder.gpu_memory_fraction 0.03 "
+    "--audio_encoder.gpu_memory_fraction 0.03 "
+    "--thinker.gpu_memory_fraction 0.92"
+)
 QWEN3_OMNI_DISAGG_THINKER_MEM_FRACTION = "0.82"
 QWEN3_OMNI_DISAGG_TALKER_MEM_FRACTION = "0.40"
 QWEN3_OMNI_FP8_TP2_THINKER_MEM_FRACTION = "0.40"

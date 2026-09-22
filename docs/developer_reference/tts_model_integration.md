@@ -25,8 +25,9 @@ below.
    `create_sglang_infrastructure`, and returns an `OmniScheduler`.
 6. Write `request_builders.py` and `payload_types.py`. Wire abort cleanup
    into every scheduler that touches shared state.
-7. Add `examples/configs/<name>.yaml` and list the model in
-   [docs/basic_usage/tts.md](../basic_usage/tts.md).
+7. List the model in [docs/basic_usage/tts.md](../basic_usage/tts.md) with its
+   `--model-path` launch, and add a discovery case for its checkpoint metadata
+   to `tests/unit_test/config/test_model_path_discovery.py`.
 8. Add the GPU-free unit tests listed at the bottom.
 
 ## Layout
@@ -82,10 +83,13 @@ class. `sglang_omni/models/registry.py` walks every subpackage of
 `architecture` attribute against the model's HF config; no manual list to
 edit anywhere.
 
-Once the code side works, drop a runnable launch file under
-`examples/configs/<name>.yaml` and add the model to
-[docs/basic_usage/tts.md](../basic_usage/tts.md) so users have something to
-point `sgl-omni serve --config` at.
+Once the code side works, add the model to
+[docs/basic_usage/tts.md](../basic_usage/tts.md) with its `--model-path`
+launch and a discovery case for its checkpoint metadata (`architectures`,
+`model_type`, or a layout marker) in
+`tests/unit_test/config/test_model_path_discovery.py`. Tuned hardware profiles
+go in the model's cookbook as dotted-flag commands, not as a shipped YAML;
+users who want a file save one with `sgl-omni config resolve ... --show config`.
 
 ### SGLang wiring
 

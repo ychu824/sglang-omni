@@ -9,7 +9,6 @@ import threading
 import time
 import types
 from collections import deque
-from pathlib import Path
 from queue import Empty, Queue
 from types import SimpleNamespace
 
@@ -18,7 +17,6 @@ import pytest
 import torch
 from sglang.srt.runtime_context import get_context
 
-from sglang_omni.config.manager import ConfigManager
 from sglang_omni.config.runtime import resolve_stage_factory_kwargs
 from sglang_omni.model_runner.prefill_inputs import get_omni_prefill_inputs
 from sglang_omni.models.qwen3_omni.pending_text_queue import PendingTextTensorQueue
@@ -64,6 +62,7 @@ from sglang_omni.scheduling.speaker_cache import (
 )
 from sglang_omni.scheduling.types import RequestOutput
 from sglang_omni.utils import cuda_staging
+from tests.unit_test.config.legacy_recipes import RECIPES_BY_FILE, legacy_config
 from tests.unit_test.fakes import FakeExecutionBridge
 
 
@@ -466,9 +465,7 @@ def test_qwen3_tts_npu_configs_use_eager_sdpa_baseline(
     model_suffix: str,
     mem_fraction_static: float,
 ) -> None:
-    config_path = Path(__file__).parents[3] / "examples" / "configs" / filename
-    config = ConfigManager.from_file(str(config_path)).config
-    assert config is not None
+    config = legacy_config(RECIPES_BY_FILE[filename])
     stages = {stage.name: stage for stage in config.stages}
 
     assert config.model_path.endswith(model_suffix)
@@ -485,8 +482,7 @@ def test_qwen3_tts_npu_configs_use_eager_sdpa_baseline(
 
 
 def test_qwen3_tts_0_6b_base_npu_config_uses_eager_concurrency() -> None:
-    config_path = Path(__file__).parents[3] / "examples/configs/qwen3_tts_0_6b_npu.yaml"
-    config = ConfigManager.from_file(str(config_path)).config
+    config = legacy_config(RECIPES_BY_FILE["qwen3_tts_0_6b_npu.yaml"])
     stages = {stage.name: stage for stage in config.stages}
     engine = stages["tts_engine"].engine
     vocoder = stages["vocoder"].factory

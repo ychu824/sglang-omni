@@ -1,10 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Ming TTS process-boundary contracts."""
 
-from pathlib import Path
-
-from sglang_omni.config.manager import ConfigManager
-from sglang_omni.config.sources import sources_from_config_file
 from sglang_omni.models.ming_tts.config import (
     AUDIO_DECODE_STAGE,
     PREPROCESSING_STAGE,
@@ -12,15 +8,12 @@ from sglang_omni.models.ming_tts.config import (
     TTS_ENGINE_STAGE,
     MingTTSPipelineConfig,
 )
+from tests.unit_test.config.legacy_recipes import RECIPES_BY_FILE, legacy_config
 from tests.unit_test.pipeline.helpers import build_compiled_process_topology
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
 
-
-def test_example_process_topology_compiles() -> None:
-    config_path = REPO_ROOT / "examples/configs/ming_omni_tts.yaml"
-    config, patches = sources_from_config_file(str(config_path))
-    config = ConfigManager(config).merge_config([], extra_patches=patches)
+def test_recipe_process_topology_compiles() -> None:
+    config = legacy_config(RECIPES_BY_FILE["ming_omni_tts.yaml"])
     assert isinstance(config, MingTTSPipelineConfig)
 
     plan = build_compiled_process_topology(config)

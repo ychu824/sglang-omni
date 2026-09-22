@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 import pytest
 
 from sglang_omni.config.manager import ConfigManager
-from sglang_omni.config.sources import sources_from_config_file
 from sglang_omni.models.ming_tts.config import (
     AUDIO_DECODE_STAGE,
     MING_TTS_DEFAULT_INITIAL_CHUNK_PATCHES,
@@ -18,8 +16,7 @@ from sglang_omni.models.ming_tts.config import (
     TTS_ENGINE_STAGE,
     MingTTSPipelineConfig,
 )
-
-REPO_ROOT = Path(__file__).resolve().parents[3]
+from tests.unit_test.config.legacy_recipes import RECIPES_BY_FILE, legacy_config
 
 
 def audio_decode_stage(raw_config: dict[str, Any]) -> dict[str, Any]:
@@ -56,10 +53,8 @@ def test_ming_tts_audio_decode_defaults_are_full_sequence_and_serial() -> None:
     assert factory["max_batch_wait_ms"] == 0
 
 
-def test_ming_tts_example_config_uses_supported_audio_decode_contract() -> None:
-    config_path = REPO_ROOT / "examples/configs/ming_omni_tts.yaml"
-    config, patches = sources_from_config_file(str(config_path))
-    config = ConfigManager(config).merge_config([], extra_patches=patches)
+def test_ming_tts_recipe_uses_supported_audio_decode_contract() -> None:
+    config = legacy_config(RECIPES_BY_FILE["ming_omni_tts.yaml"])
     assert isinstance(config, MingTTSPipelineConfig)
 
     audio_decode = config.stage_named(AUDIO_DECODE_STAGE)

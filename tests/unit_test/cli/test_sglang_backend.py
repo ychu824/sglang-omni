@@ -13,7 +13,7 @@ from sglang_omni.config.manager import ConfigManager
 
 
 class DummyManager:
-    def __init__(self, model_path: str):
+    def __init__(self, model_path: str, variant: str | None = None):
         self.config = PipelineConfig(
             model_path=model_path,
             stages=[

@@ -27,6 +27,11 @@ from sglang_omni.config.manager import ConfigManager
 from sglang_omni.config.sources import dump_user_config
 
 
+def flat_output_of(result) -> str:
+    """The command's output with rich's error panel unwrapped to one line."""
+    return " ".join(output_of(result).replace("│", " ").split())
+
+
 def output_of(result) -> str:
     """Everything the command wrote, whichever click version is installed.
 
@@ -576,3 +581,218 @@ class TestServeErrors:
         output = output_of(result)
         assert "Missing value" in output
         assert "Traceback" not in output
+
+
+class TestVariant:
+    """`--variant` selects a pipeline of the resolved model on every config
+    command, with the same combinations `serve` accepts."""
+
+    @pytest.fixture
+    def qwen_discovery(self, monkeypatch):
+        module = pytest.importorskip("sglang_omni.models.qwen3_omni.config")
+        monkeypatch.setattr(
+            "sglang_omni.config.manager.resolve_config_cls_for_model_path",
+            lambda model_path: module.Qwen3OmniSpeechPipelineConfig,
+        )
+        return module
+
+    def test_view_and_export_print_the_variant_defaults(
+        self, runner, qwen_discovery, tmp_path
+    ):
+        viewed = runner.invoke(
+            config_app, ["view", "--model-path", "dummy", "--variant", "text"]
+        )
+        assert viewed.exit_code == 0, output_of(viewed)
+        printed = yaml.safe_load(viewed.stdout)
+        assert printed["config_cls"] == "Qwen3OmniPipelineConfig"
+        assert "talker_ar" not in printed["stages"]
+
+        output = tmp_path / "text.yaml"
+        exported = runner.invoke(
+            config_app,
+            [
+                "export",
+                "--model-path",
+                "dummy",
+                "--variant",
+                "text",
+                "--output-path",
+                str(output),
+            ],
+        )
+        assert exported.exit_code == 0, output_of(exported)
+        assert yaml.safe_load(output.read_text()) == printed
+        # Defaults only: a file loader gives back the same pipeline untouched.
+        assert dump_user_config(ConfigManager.from_file(str(output)).config) == printed
+
+    def test_resolve_previews_the_selected_pipeline_with_its_overrides(
+        self, runner, qwen_discovery
+    ):
+        result = runner.invoke(
+            config_app,
+            [
+                "resolve",
+                "--model-path",
+                "dummy",
+                "--variant",
+                "speech-colocated",
+                "--thinker.gpu_memory_fraction",
+                "0.75",
+            ],
+        )
+        assert result.exit_code == 0, output_of(result)
+        printed = yaml.safe_load(result.stdout)
+
+        assert printed["config_cls"] == "Qwen3OmniSpeechColocatedPipelineConfig"
+        assert printed["stages"]["thinker"]["gpu_memory_fraction"] == 0.75
+        assert {
+            printed["stages"][name]["gpu"]
+            for name in ("thinker", "talker_ar", "code2wav")
+        } == {0}
+
+    def test_resolve_output_round_trips_as_a_user_config_file(
+        self, runner, qwen_discovery, tmp_path
+    ):
+        """The documented way to keep a full recipe as a file."""
+        result = runner.invoke(
+            config_app,
+            [
+                "resolve",
+                "--model-path",
+                "org/model@abc123",
+                "--variant",
+                "speech-colocated",
+                "--name",
+                "own-profile",
+                "--thinker.gpu_memory_fraction",
+                "0.75",
+                "--show",
+                "config",
+            ],
+        )
+        assert result.exit_code == 0, output_of(result)
+        own = tmp_path / "own.yaml"
+        own.write_text(result.stdout)
+
+        reloaded = ConfigManager.from_file(str(own)).config
+
+        assert type(reloaded).__name__ == "Qwen3OmniSpeechColocatedPipelineConfig"
+        assert reloaded.model_path == "org/model@abc123"
+        assert reloaded.name == "own-profile"
+        assert reloaded.stage_named("thinker").gpu_memory_fraction == 0.75
+        assert dump_user_config(reloaded) == yaml.safe_load(result.stdout)
+
+    def test_explain_names_the_command_line_on_the_selected_pipeline(
+        self, runner, qwen_discovery
+    ):
+        result = runner.invoke(
+            config_app,
+            [
+                "explain",
+                "stages.thinker.gpu_memory_fraction",
+                "--model-path",
+                "dummy",
+                "--variant",
+                "speech-colocated",
+                "--thinker.gpu_memory_fraction",
+                "0.75",
+            ],
+        )
+        assert result.exit_code == 0, output_of(result)
+        assert "command line" in result.stdout
+        assert "0.75" in result.stdout
+
+    @pytest.mark.parametrize("command", ["view", "export", "resolve", "explain"])
+    def test_an_unknown_variant_is_refused_with_the_declared_keys(
+        self, runner, qwen_discovery, command
+    ):
+        result = runner.invoke(
+            config_app,
+            [command, "--model-path", "dummy", "--variant", "speech_colocated"],
+        )
+
+        assert result.exit_code != 0
+        assert "declares variants: speech, speech-colocated, text" in flat_output_of(
+            result
+        )
+        assert "Traceback" not in output_of(result)
+
+    @pytest.mark.parametrize("command", ["resolve", "explain"])
+    def test_a_variant_next_to_a_config_file_is_refused(
+        self, runner, plain_config_file, command
+    ):
+        result = runner.invoke(
+            config_app,
+            [command, "--config", str(plain_config_file), "--variant", "speech"],
+        )
+
+        assert result.exit_code != 0
+        assert "config_cls already selects" in flat_output_of(result)
+
+    def test_text_only_and_the_text_variant_agree(self, runner, qwen_discovery):
+        both = runner.invoke(
+            config_app,
+            ["resolve", "--model-path", "dummy", "--variant", "text", "--text-only"],
+        )
+        flag_only = runner.invoke(
+            config_app, ["resolve", "--model-path", "dummy", "--text-only"]
+        )
+
+        assert both.exit_code == 0, output_of(both)
+        assert both.stdout == flag_only.stdout
+        conflict = runner.invoke(
+            config_app,
+            ["resolve", "--model-path", "dummy", "--variant", "speech", "--text-only"],
+        )
+        assert conflict.exit_code != 0
+        assert "conflicts with --variant speech" in flat_output_of(conflict)
+
+
+class TestChunklessRoundTrip:
+    """A TTS pipeline declares no audio chunking, so its dump must not carry
+    the block a reload would refuse; the saved recipe has to launch."""
+
+    def test_resolve_output_reloads_for_a_pipeline_without_chunking(
+        self, runner, base_config, plain_config_file, stage, tmp_path
+    ):
+        assert not type(base_config).allow_audio_chunking
+        result = runner.invoke(
+            config_app,
+            [
+                "resolve",
+                "--config",
+                str(plain_config_file),
+                f"--{stage}.engine.mem_fraction_static",
+                "0.7",
+                "--show",
+                "config",
+            ],
+        )
+        assert result.exit_code == 0, output_of(result)
+        printed = yaml.safe_load(result.stdout)
+        assert "audio_chunking" not in printed
+
+        saved = tmp_path / "saved.yaml"
+        saved.write_text(result.stdout)
+        reloaded = ConfigManager.from_file(str(saved)).config
+
+        assert type(reloaded) is type(base_config)
+        assert reloaded.stage_named(stage).engine.mem_fraction_static == 0.7
+        assert dump_user_config(reloaded) == printed
+
+    def test_view_output_reloads_for_a_pipeline_without_chunking(
+        self, runner, base_config, monkeypatch, tmp_path
+    ):
+        monkeypatch.setattr(
+            "sglang_omni.config.manager.resolve_config_cls_for_model_path",
+            lambda model_path: type(base_config),
+        )
+        result = runner.invoke(config_app, ["view", "--model-path", "dummy"])
+        assert result.exit_code == 0, output_of(result)
+
+        saved = tmp_path / "defaults.yaml"
+        saved.write_text(result.stdout)
+
+        assert dump_user_config(ConfigManager.from_file(str(saved)).config) == (
+            yaml.safe_load(result.stdout)
+        )

@@ -146,9 +146,7 @@ class PipelineConfigRegistry:
                 return config_cls
             else:
                 pass
-            config_module = importlib.import_module(config_cls.__module__)
-            variants = getattr(config_module, "Variants", {})
-            for variant_cls in variants.values():
+            for variant_cls in pipeline_variants(config_cls).values():
                 if variant_cls.__name__ == name:
                     return variant_cls
                 else:
@@ -156,6 +154,14 @@ class PipelineConfigRegistry:
         raise ValueError(
             f"Config class {name} not found in the pipeline config registry"
         )
+
+
+def pipeline_variants(
+    config_cls: Type[PipelineConfig],
+) -> Dict[str, Type[PipelineConfig]]:
+    """The Variants map the model's config module declares, or empty."""
+    config_module = importlib.import_module(config_cls.__module__)
+    return dict(getattr(config_module, "Variants", {}))
 
 
 PIPELINE_CONFIG_REGISTRY = PipelineConfigRegistry()

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import inspect
 import logging
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -20,7 +19,6 @@ import sglang_omni.scheduling.omni_scheduler as omni_scheduler
 import sglang_omni.scheduling.sglang_backend as sglang_backend
 import sglang_omni.utils.cuda_graph_batch_validator as cuda_graph_batch_validator
 import sglang_omni.utils.device as device_utils
-from sglang_omni.config.manager import ConfigManager
 from sglang_omni.config.runtime import resolve_stage_typed_kwargs
 from sglang_omni.models.qwen3_asr import request_builders
 from sglang_omni.models.qwen3_asr.config import Qwen3ASRPipelineConfig
@@ -30,6 +28,7 @@ from sglang_omni.scheduling.generation_batch_policy import (
     build_generation_batch_overrides,
     validate_generation_batch_policy,
 )
+from tests.unit_test.config.legacy_recipes import RECIPES_BY_FILE, legacy_config
 
 
 @pytest.fixture(autouse=True)
@@ -408,10 +407,7 @@ def test_qwen3_asr_stage_default_enables_async_decode() -> None:
 
 
 def test_qwen3_asr_rtx4090_profile_is_bf16_and_bounded() -> None:
-    repo_root = Path(__file__).resolve().parents[3]
-    config = ConfigManager.from_file(
-        str(repo_root / "examples/configs/qwen3_asr_rtx4090.yaml")
-    ).config
+    config = legacy_config(RECIPES_BY_FILE["qwen3_asr_rtx4090.yaml"])
     stage = config.stages[0]
 
     kwargs = resolve_stage_typed_kwargs(stage)

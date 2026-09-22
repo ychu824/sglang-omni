@@ -46,6 +46,7 @@ def serve_kwargs(**overrides):
         ctx=SimpleNamespace(args=[]),
         model_path="dummy",
         config=None,
+        variant=None,
         text_only=False,
         colocate=False,
         host="0.0.0.0",
@@ -154,7 +155,7 @@ def test_cli_uses_model_registry_default_by_default(from_model_path, launch_serv
 
     serve(**serve_kwargs())
 
-    from_model_path.assert_called_once_with("dummy")
+    from_model_path.assert_called_once_with("dummy", variant=None)
     launch_server.assert_called_once()
 
 
@@ -363,3 +364,95 @@ def test_partial_start_flag_on_a_missing_stage_names_the_real_ones():
         ConfigManager(config).merge_config(
             [("talker_ar.factory.enable_partial_start", "true")]
         )
+
+
+@pytest.fixture
+def qwen_discovery(monkeypatch):
+    """Discovery lands on Qwen3-Omni's EntryClass, so variant selection runs
+    against the real Variants map instead of a stubbed manager."""
+    monkeypatch.setattr(
+        "sglang_omni.config.manager.resolve_config_cls_for_model_path",
+        lambda model_path: Qwen3OmniSpeechPipelineConfig,
+    )
+
+
+@pytest.mark.parametrize(
+    ("variant", "text_only", "config_cls"),
+    [
+        (None, False, Qwen3OmniSpeechPipelineConfig),
+        ("text", False, Qwen3OmniPipelineConfig),
+        ("text", True, Qwen3OmniPipelineConfig),
+        ("speech", False, Qwen3OmniSpeechPipelineConfig),
+        ("speech-colocated", False, Qwen3OmniSpeechColocatedPipelineConfig),
+    ],
+)
+@patch("sglang_omni.cli.serve.launch_server")
+def test_cli_variant_selects_the_declared_pipeline(
+    launch_server, qwen_discovery, variant, text_only, config_cls
+):
+    serve(**serve_kwargs(variant=variant, text_only=text_only))
+
+    assert type(launch_server.call_args.args[0]) is config_cls
+
+
+@pytest.mark.parametrize(
+    "variant", ["speech_colocated", "Speech-Colocated", "", "default", "colocated"]
+)
+@patch("sglang_omni.cli.serve.launch_server")
+def test_cli_rejects_a_variant_qwen_does_not_declare(
+    launch_server, qwen_discovery, variant
+):
+    """Keys are matched exactly: no case folding, no dash/underscore rewriting,
+    no empty-string fallback to the default; the error lists the real keys."""
+    with pytest.raises(typer.BadParameter) as excinfo:
+        serve(**serve_kwargs(variant=variant))
+
+    if variant:
+        assert "speech, speech-colocated, text" in str(excinfo.value)
+        assert repr(variant) in str(excinfo.value)
+    else:
+        assert "cannot be empty" in str(excinfo.value)
+    launch_server.assert_not_called()
+
+
+@patch("sglang_omni.cli.serve.launch_server")
+@patch("sglang_omni.cli.serve.ConfigManager.from_file")
+def test_cli_variant_is_refused_next_to_a_config_file(from_file, launch_server):
+    with pytest.raises(typer.BadParameter, match="config_cls already selects"):
+        serve(**serve_kwargs(config="pipeline.yaml", variant="speech"))
+
+    from_file.assert_not_called()
+    launch_server.assert_not_called()
+
+
+def test_cli_variant_is_refused_next_to_colocate():
+    with pytest.raises(typer.BadParameter, match="--variant speech-colocated"):
+        serve(
+            **serve_kwargs(
+                config="pipeline.yaml", colocate=True, variant="speech-colocated"
+            )
+        )
+
+
+@patch("sglang_omni.cli.serve.launch_server")
+def test_cli_text_only_conflicts_with_a_non_text_variant(launch_server, qwen_discovery):
+    with pytest.raises(typer.BadParameter, match="conflicts with --variant speech"):
+        serve(**serve_kwargs(variant="speech", text_only=True))
+
+    launch_server.assert_not_called()
+
+
+@patch("sglang_omni.cli.serve.launch_server")
+def test_cli_variant_applies_dotted_overrides_to_the_selected_pipeline(
+    launch_server, qwen_discovery
+):
+    serve(
+        **serve_kwargs(
+            variant="speech-colocated",
+            ctx=SimpleNamespace(args=["--thinker.gpu_memory_fraction", "0.75"]),
+        )
+    )
+
+    launched = launch_server.call_args.args[0]
+    assert isinstance(launched, Qwen3OmniSpeechColocatedPipelineConfig)
+    assert make_stage(launched, "thinker").gpu_memory_fraction == 0.75

@@ -9,6 +9,7 @@ set -euo pipefail
 #   CUDA_VISIBLE_DEVICES=0 ./playground/s2pro/start.sh
 #   ./playground/s2pro/start.sh --port 8080 --gradio-port 7861 --share
 #   ./playground/s2pro/start.sh --model-path /path/to/s2-pro
+#   ./playground/s2pro/start.sh --config /path/to/own_s2pro.yaml
 # ---------------------------------------------------------------------------
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -19,7 +20,8 @@ BACKEND_PORT="${PORT:-8000}"
 GRADIO_PORT="7899"
 GRADIO_SHARE=""
 MODEL_PATH="${S2PRO_CKPT:-${MODEL_PATH:-fishaudio/s2-pro}}"
-CONFIG_PATH="${REPO_DIR}/examples/configs/s2pro_tts.yaml"
+# Optional pipeline config file; the model path alone selects the S2-Pro pipeline.
+CONFIG_PATH=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -63,7 +65,7 @@ echo "============================================================"
 echo "[1/2] Starting S2-Pro server..."
 "${PYTHON_BIN}" -m sglang_omni.cli serve \
   --model-path "${MODEL_PATH}" \
-  --config "${CONFIG_PATH}" \
+  ${CONFIG_PATH:+--config "${CONFIG_PATH}"} \
   --port "${BACKEND_PORT}" &
 SERVER_PID=$!
 

@@ -28,7 +28,6 @@ First startup can take several minutes while the `tts_generation` stage captures
 ```bash
 sgl-omni serve \
   --model-path mistralai/Voxtral-4B-TTS-2603 \
-  --config examples/configs/voxtral_tts.yaml \
   --port 8000
 ```
 

@@ -1,2 +1,0 @@
-config_cls: VoxtralTTSPipelineConfig
-model_path: mistralai/Voxtral-4B-TTS-2603

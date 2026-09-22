@@ -28,8 +28,7 @@ python -m benchmarks.dataset.prepare --dataset seedtts
 
 # S2-Pro — for sections 2a/2b/2c
 python -m sglang_omni.cli serve \
-    --model-path fishaudio/s2-pro \
-    --config examples/configs/s2pro_tts.yaml --port 8000
+    --model-path fishaudio/s2-pro --port 8000
 
 # Voxtral-4B-TTS — for section 2d (plain TTS, no voice cloning)
 python -m sglang_omni.cli serve \
@@ -42,8 +41,7 @@ python -m sglang_omni.cli serve \
 
 # MOSS-TTS — for section 2f (voice cloning via references[], duration via token_count)
 python -m sglang_omni.cli serve \
-    --model-path OpenMOSS-Team/MOSS-TTS-v1.5 \
-    --config examples/configs/moss_tts.yaml --port 8000
+    --model-path OpenMOSS-Team/MOSS-TTS-v1.5 --port 8000
 
 # Qwen3-Omni, speech mode — for section 3 (SeedTTS; multi-GPU)
 python -m sglang_omni.cli serve \

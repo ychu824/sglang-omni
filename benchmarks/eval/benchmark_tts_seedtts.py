@@ -223,9 +223,8 @@ class TtsSeedttsBenchmarkConfig:
     overshoot_duration_s: float = 10.0
     cuda_graph_max_bs: int = 64
     # note (luojiaxuan): optional sglang-omni pipeline config yaml forwarded
-    # to the managed TTS server as --config e.g.
-    # examples/configs/dots_tts.yaml to run the canonical optimized
-    # deployment.
+    # to the managed TTS server as --config, e.g. the canonical dots.tts
+    # deployment saved with sgl-omni config resolve ... --show config.
     server_config: str | None = None
     quantization: str | None = None
     lang: str = "en"
@@ -1026,9 +1025,9 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Optional sglang-omni pipeline config yaml passed to the managed "
-            "TTS server as --config (e.g. examples/configs/dots_tts.yaml for "
-            "the canonical optimized dots.tts deployment). Ignored with "
-            "--use-existing-server."
+            "TTS server as --config (e.g. the canonical dots.tts deployment "
+            "saved with `sgl-omni config resolve ... --show config`). Ignored "
+            "with --use-existing-server."
         ),
     )
     parser.add_argument(

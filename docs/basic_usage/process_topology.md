@@ -225,9 +225,25 @@ GPU 1: talker_ar@r0 + code2wav@r0
 GPU 2: talker_ar@r1 + code2wav@r1
 ```
 
-Run it with `sgl-omni serve --config
-examples/configs/qwen3_omni_speech_replica2.yaml --port 8091`; the full file is
-[`qwen3_omni_speech_replica2.yaml`](https://github.com/sgl-project/sglang-omni/blob/main/examples/configs/qwen3_omni_speech_replica2.yaml).
+Save it as `qwen3_omni_speech_replica2.yaml` and run it with `sgl-omni serve
+--config qwen3_omni_speech_replica2.yaml --port 8091`, or write the same
+settings as flags:
+
+```bash
+sgl-omni serve \
+  --model-path Qwen/Qwen3-Omni-30B-A3B-Instruct \
+  --name qwen3-omni-speech-replica2 \
+  --talker_ar.gpu_memory_fraction 0.123 \
+  --code2wav.gpu_memory_fraction 0.014 \
+  --processes.talker_ar.num_replicas 2 \
+  --processes.talker_ar.replica_devices "[1, 2]" \
+  --processes.code2wav.num_replicas 2 \
+  --processes.code2wav.replica_devices "[1, 2]" \
+  --port 8091
+```
+
+The baseline A/B counterpart is the default speech pipeline (no flags), which
+runs one talker_ar + code2wav pair on GPU 1.
 
 ### Replicas on one GPU
 

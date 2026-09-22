@@ -7,7 +7,11 @@ import typer
 import yaml
 
 from sglang_omni.config import PipelineConfig
-from sglang_omni.config.manager import ConfigManager
+from sglang_omni.config.manager import (
+    ConfigManager,
+    VariantSelectionError,
+    resolve_variant_selection,
+)
 from sglang_omni.config.patch import (
     ConfigPatch,
     ConfigPatchSet,
@@ -297,6 +301,18 @@ def serve(
     config: Annotated[
         str | None, typer.Option(help="Path to a pipeline config file.")
     ] = None,
+    variant: Annotated[
+        str | None,
+        typer.Option(
+            "--variant",
+            help=(
+                "Pipeline variant of the resolved model, e.g. text, speech or "
+                "speech-colocated for Qwen3-Omni and single_process for "
+                "MOSS-TTS. Selects the topology; per-stage settings stay "
+                "dotted flags. Not combinable with --config or --colocate."
+            ),
+        ),
+    ] = None,
     text_only: Annotated[
         bool,
         typer.Option(
@@ -393,6 +409,12 @@ def serve(
         config=config,
         text_only=text_only,
     )
+    try:
+        selected_variant = resolve_variant_selection(
+            variant=variant, text_only=text_only, config=config, colocate=colocate
+        )
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
 
     # --- Resolve config ---
     if config:
@@ -403,18 +425,15 @@ def serve(
             # two entries disagreeing about one path: all of these carry a
             # message written to be read, not a traceback.
             raise typer.BadParameter(str(exc)) from exc
-    elif text_only:
-        if model_path is None:
-            raise typer.BadParameter("--model-path is required unless --config is set")
-        else:
-            pass
-        config_manager = ConfigManager.from_model_path(model_path, variant="text")
+    elif model_path is None:
+        raise typer.BadParameter("--model-path is required unless --config is set")
     else:
-        if model_path is None:
-            raise typer.BadParameter("--model-path is required unless --config is set")
-        else:
-            pass
-        config_manager = ConfigManager.from_model_path(model_path)
+        try:
+            config_manager = ConfigManager.from_model_path(
+                model_path, variant=selected_variant
+            )
+        except VariantSelectionError as exc:
+            raise typer.BadParameter(str(exc)) from exc
 
     # we use ctx to capture the arguments that are used to modify the configuration on the fly
     # we do expect the extra arguments to be pairs of names and values
