@@ -115,6 +115,7 @@ def test_tts_pipeline_states_share_base_usage_contract() -> None:
         "prompt_tokens",
         "completion_tokens",
         "engine_time_s",
+        "finish_reason",
     }
 
     for state_cls in state_classes:
@@ -124,6 +125,19 @@ def test_tts_pipeline_states_share_base_usage_contract() -> None:
         assert not missing, f"{state_cls.__name__} missing base fields: {missing}"
         assert callable(getattr(state_cls, "to_dict", None)), state_cls.__name__
         assert callable(getattr(state_cls, "from_dict", None)), state_cls.__name__
+
+
+def test_declarative_state_round_trips_finish_reason() -> None:
+    import dataclasses
+
+    @dataclasses.dataclass
+    class _State(DeclarativeStateBase):
+        value: str = ""
+
+    assert "finish_reason" not in _State(value="x").to_dict()
+    data = _State(value="x", finish_reason="length").to_dict()
+    assert data["finish_reason"] == "length"
+    assert _State.from_dict(data).finish_reason == "length"
 
 
 def _normalize_payload_value(value: Any) -> Any:

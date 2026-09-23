@@ -148,7 +148,8 @@ _AUK_BENCHMARK_PROFILE = _ModelBenchmarkProfile(
 # note (Yucheng Hu): Fun-CosyVoice3 caps generation at 20x the target text
 # token count unless the request carries an explicit max_new_tokens, so the
 # generic 2048 default would let a runaway generation run to the full 2048
-# tokens (about 82 s of audio) and skew the whole run.
+# tokens (about 82 s of audio) and skew the whole run. Add a profile here for
+# any other model whose server default should win over the benchmark default.
 _FUN_COSYVOICE3_BENCHMARK_PROFILE = _ModelBenchmarkProfile(
     argument_defaults={"max_new_tokens": None},
 )

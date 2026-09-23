@@ -20,7 +20,7 @@ __all__ = [
     "wire",
 ]
 
-_USAGE_FIELDS = ("prompt_tokens", "completion_tokens", "engine_time_s")
+_USAGE_FIELDS = ("prompt_tokens", "completion_tokens", "engine_time_s", "finish_reason")
 _EXPLICIT_EMIT_MODES = frozenset({"always", "not_none", "truthy"})
 _DEFAULT_CONSUMING_CODECS = frozenset({"int_or", "str_or"})
 
@@ -33,6 +33,10 @@ class PipelineStateBase:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     engine_time_s: float = 0.0
+    # note (Yucheng Hu): engine terminal state (stop, length, abort). It rides
+    # with the usage fields so a client can tell a capped generation from a
+    # natural stop.
+    finish_reason: str | None = None
 
     # Note(Chenchen Hong): subclasses must override; the stub turns a forgotten
     # override into a clear contract error rather than an AttributeError in store_state.
@@ -60,6 +64,8 @@ class PipelineStateBase:
             data["completion_tokens"] = int(self.completion_tokens)
         if self.engine_time_s:
             data["engine_time_s"] = float(self.engine_time_s)
+        if self.finish_reason:
+            data["finish_reason"] = self.finish_reason
 
 
 def tensor_to_list(value: Any) -> Any:
@@ -271,6 +277,9 @@ class DeclarativeStateBase(PipelineStateBase):
                 continue
             if f.name == "engine_time_s":
                 kwargs[f.name] = float(data.get("engine_time_s", 0.0) or 0.0)
+                continue
+            if f.name == "finish_reason":
+                kwargs[f.name] = data.get("finish_reason")
                 continue
             if f.name not in data:
                 continue
