@@ -468,6 +468,8 @@ class FunCosyVoice3StreamingVocoderScheduler(
             "sample_rate": self.sample_rate,
         }
         pipeline_state = FunCosyVoice3State.from_dict(payload.data)
+        if pipeline_state.finish_reason is not None:
+            final_data["finish_reason"] = pipeline_state.finish_reason
         usage = build_usage(pipeline_state)
         if usage is None:
             return final_data

@@ -7,6 +7,7 @@ import asyncio
 import base64
 import binascii
 import logging
+from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -16,6 +17,7 @@ from pydantic import ValidationError
 
 from sglang_omni.client import ClientError, GenerateRequest, SamplingParams
 from sglang_omni.client.audio import audio_encoding_unavailable_reason
+from sglang_omni.client.types import UsageInfo
 from sglang_omni.config.schema import MAX_SPEECH_INPUT_CHARS, CustomVoiceConfig
 from sglang_omni.preprocessing.base import MediaIO
 from sglang_omni.preprocessing.resource_connector import MultiModalResourceConnector
@@ -72,6 +74,30 @@ class PreparedSpeechReferences:
     request_updates: dict[str, Any]
     reference_descriptors: list[dict[str, Any]]
     uploaded_voice: "UploadedVoiceReference | None" = None
+
+
+class SpeechStreamOutcomes:
+    """Terminal state of recently finished raw PCM speech streams by request id."""
+
+    # note (Yucheng Hu): a raw PCM stream cannot carry trailing metadata, so
+    # the terminal state is kept here for a follow-up GET by request id.
+    def __init__(self, max_entries: int = 1024) -> None:
+        self.max_entries = max_entries
+        self.entries: OrderedDict[str, dict[str, Any]] = OrderedDict()
+
+    def record(
+        self, request_id: str, finish_reason: str | None, usage: UsageInfo | None
+    ) -> None:
+        self.entries[request_id] = {
+            "request_id": request_id,
+            "finish_reason": finish_reason,
+            "usage": usage.to_dict() if usage is not None else None,
+        }
+        while len(self.entries) > self.max_entries:
+            self.entries.popitem(last=False)
+
+    def get(self, request_id: str) -> dict[str, Any] | None:
+        return self.entries.get(request_id)
 
 
 class SpeechRequestValidator:

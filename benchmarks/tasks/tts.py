@@ -1058,16 +1058,52 @@ def _resolve_tts_generation_kwargs(
 
 
 def _parse_response_headers(result: RequestResult, headers: dict) -> None:
-    prompt_tok = headers.get("X-Prompt-Tokens")
-    comp_tok = headers.get("X-Completion-Tokens")
-    eng_time = headers.get("X-Engine-Time")
-    finish_reason = headers.get("X-Finish-Reason")
-    if prompt_tok is not None:
-        result.prompt_tokens = int(prompt_tok)
-    if comp_tok is not None:
-        result.completion_tokens = int(comp_tok)
-    if eng_time is not None:
-        result.engine_time_s = float(eng_time)
+    _apply_usage(
+        result,
+        prompt_tokens=headers.get("X-Prompt-Tokens"),
+        completion_tokens=headers.get("X-Completion-Tokens"),
+        engine_time_s=headers.get("X-Engine-Time"),
+        finish_reason=headers.get("X-Finish-Reason"),
+    )
+
+
+async def _fetch_stream_outcome(
+    session: aiohttp.ClientSession,
+    api_url: str,
+    request_id: str,
+    result: RequestResult,
+) -> None:
+    # note (Yucheng Hu): a raw PCM stream carries no trailing metadata, so the
+    # server keeps the terminal state for a follow-up GET. A server without the
+    # route, or an evicted entry, leaves the result unchanged.
+    async with session.get(f"{api_url}/{request_id}") as response:
+        if response.status != 200:
+            return
+        outcome = await response.json()
+    usage = outcome.get("usage") or {}
+    _apply_usage(
+        result,
+        prompt_tokens=usage.get("prompt_tokens"),
+        completion_tokens=usage.get("completion_tokens"),
+        engine_time_s=usage.get("engine_time_s"),
+        finish_reason=outcome.get("finish_reason"),
+    )
+
+
+def _apply_usage(
+    result: RequestResult,
+    *,
+    prompt_tokens: int | str | None,
+    completion_tokens: int | str | None,
+    engine_time_s: float | str | None,
+    finish_reason: str | None,
+) -> None:
+    if prompt_tokens is not None:
+        result.prompt_tokens = int(prompt_tokens)
+    if completion_tokens is not None:
+        result.completion_tokens = int(completion_tokens)
+    if engine_time_s is not None:
+        result.engine_time_s = float(engine_time_s)
     if finish_reason is not None:
         result.finish_reason = finish_reason
     if result.completion_tokens > 0 and result.engine_time_s > 0:
@@ -1310,6 +1346,7 @@ def make_tts_send_fn(
             **gen_kwargs,
         )
         start_time = time.perf_counter()
+        stream_request_id: str | None = None
         try:
             async with session.post(api_url, json=payload) as response:
                 if response.status != 200:
@@ -1318,6 +1355,7 @@ def make_tts_send_fn(
                     await _handle_raw_pcm_streaming_response(
                         response, result, start_time, save_audio_dir
                     )
+                    stream_request_id = response.headers.get("X-Request-Id")
                 else:
                     await _handle_non_streaming_response(
                         response, result, start_time, save_audio_dir
@@ -1326,6 +1364,14 @@ def make_tts_send_fn(
             result.error = str(exc)
         finally:
             result.latency_s = time.perf_counter() - start_time
+        # The follow-up lookup stays outside the latency window.
+        if result.is_success and stream_request_id is not None:
+            try:
+                await _fetch_stream_outcome(session, api_url, stream_request_id, result)
+            except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+                logger.warning(
+                    f"[{result.request_id}] stream outcome lookup failed: {exc}"
+                )
         return result
 
     return send_fn

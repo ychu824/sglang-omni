@@ -30,7 +30,10 @@ from sglang_omni.serve.openai_api import (
     speech_audio_response,
 )
 from sglang_omni.serve.protocol import ChatCompletionRequest, CreateSpeechRequest
-from sglang_omni.serve.speech_service import SpeechRequestValidator
+from sglang_omni.serve.speech_service import (
+    SpeechRequestValidator,
+    SpeechStreamOutcomes,
+)
 from sglang_omni.serve.transcriptions import (
     _first_transcription_chunk,
     _transcription_stream,
@@ -131,7 +134,7 @@ class SuccessfulSpeechClient:
             modality="audio",
             audio_data=[0.0, 0.1, -0.1, 0.0],
             sample_rate=self.sample_rate,
-            finish_reason="stop",
+            finish_reason=self.finish_reason,
         )
 
     async def speech(
@@ -1300,6 +1303,34 @@ def test_speech_stream_headers_use_chunk_sample_rate() -> None:
     assert response.content == expected
 
 
+def test_speech_stream_exposes_terminal_state_by_request_id() -> None:
+    client = TestClient(
+        create_app(SuccessfulSpeechClient(finish_reason="length"), model_name="s2-pro")
+    )
+
+    response = client.post(
+        "/v1/audio/speech",
+        json={
+            "model": "s2-pro",
+            "input": "hello",
+            "voice": "default",
+            "stream": True,
+            "response_format": "pcm",
+        },
+    )
+    assert response.status_code == 200
+    request_id = response.headers["x-request-id"]
+
+    outcome = client.get(f"/v1/audio/speech/{request_id}")
+    assert outcome.status_code == 200
+    assert outcome.json() == {
+        "request_id": request_id,
+        "finish_reason": "length",
+        "usage": None,
+    }
+    assert client.get("/v1/audio/speech/speech-unknown").status_code == 404
+
+
 def test_raw_pcm_response_close_aborts_inner_speech_stream() -> None:
     async def _drive() -> None:
         client = PrefetchedBlockingStreamingSpeechClient()
@@ -1309,6 +1340,7 @@ def test_raw_pcm_response_close_aborts_inner_speech_stream() -> None:
             gen_req=GenerateRequest(model="s2-pro", prompt="hello", stream=True),
             request_id="req-1",
             speed=1.0,
+            outcomes=SpeechStreamOutcomes(),
         )
         body = response.body_iterator
         assert await anext(body) == encode_pcm([0.0, 0.1, -0.1, 0.0], 24000)
@@ -1329,6 +1361,7 @@ def test_raw_pcm_response_disconnect_before_first_chunk_aborts_request() -> None
                 gen_req=GenerateRequest(model="s2-pro", prompt="hello", stream=True),
                 request_id="req-1",
                 speed=1.0,
+                outcomes=SpeechStreamOutcomes(),
             )
         )
         await client.started.wait()

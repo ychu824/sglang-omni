@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """SeedTTS benchmark entry-point: model profiles, server lifecycle, WER filter."""
 
+import asyncio
 import json
 import sys
 import threading
@@ -16,7 +17,11 @@ from benchmarks.dataset.seedtts import SampleInput
 from benchmarks.eval import benchmark_tts_seedtts as tts
 from benchmarks.metrics.wer import SampleOutput, calculate_wer_metrics
 from benchmarks.tasks import asr
-from benchmarks.tasks.tts import _build_tts_payload, _parse_response_headers
+from benchmarks.tasks.tts import (
+    _build_tts_payload,
+    _fetch_stream_outcome,
+    _parse_response_headers,
+)
 from tests.utils import QWEN3_ASR_WER_CONCURRENCY, assert_wer_partitioned
 
 SEEDTTS_SAMPLE = SampleInput(
@@ -203,6 +208,63 @@ def test_response_headers_carry_finish_reason():
     )
     assert result.completion_tokens == 2048
     assert result.finish_reason == "length"
+
+
+class _FakeOutcomeResponse:
+    def __init__(self, status: int, body: dict) -> None:
+        self.status = status
+        self.body = body
+
+    async def json(self) -> dict:
+        return self.body
+
+    async def __aenter__(self) -> "_FakeOutcomeResponse":
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        return None
+
+
+class _FakeOutcomeSession:
+    def __init__(self, status: int, body: dict) -> None:
+        self.response = _FakeOutcomeResponse(status, body)
+        self.urls: list[str] = []
+
+    def get(self, url: str) -> _FakeOutcomeResponse:
+        self.urls.append(url)
+        return self.response
+
+
+def test_stream_outcome_lookup_fills_finish_reason_and_usage():
+    outcome = {
+        "request_id": "speech-1",
+        "finish_reason": "length",
+        "usage": {"prompt_tokens": 7, "completion_tokens": 120, "engine_time_s": 4.8},
+    }
+    session = _FakeOutcomeSession(200, outcome)
+    result = RequestResult(request_id="sample-1")
+    asyncio.run(
+        _fetch_stream_outcome(
+            session, "http://host/v1/audio/speech", "speech-1", result
+        )
+    )
+    assert session.urls == ["http://host/v1/audio/speech/speech-1"]
+    assert result.finish_reason == "length"
+    assert result.prompt_tokens == 7
+    assert result.completion_tokens == 120
+    assert result.tok_per_s == pytest.approx(25.0)
+
+
+def test_stream_outcome_lookup_leaves_result_unchanged_without_route():
+    session = _FakeOutcomeSession(404, {"detail": "not found"})
+    result = RequestResult(request_id="sample-1")
+    asyncio.run(
+        _fetch_stream_outcome(
+            session, "http://host/v1/audio/speech", "speech-1", result
+        )
+    )
+    assert result.finish_reason is None
+    assert result.completion_tokens == 0
 
 
 def test_wer_fanout_preserves_all_twenty_samples_at_long_audio_admission_cap(
