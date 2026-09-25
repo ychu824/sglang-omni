@@ -299,7 +299,13 @@ def resolve_managed_worker_capabilities(
         return set(launcher_config.worker_capabilities)
 
     extra_args = shlex.split(launcher_config.worker_extra_args)
-    if "--text-only" in extra_args:
+    variant = None
+    for index, arg in enumerate(extra_args):
+        if arg == "--variant" and index + 1 < len(extra_args):
+            variant = extra_args[index + 1]
+        elif arg.startswith("--variant="):
+            variant = arg.partition("=")[2]
+    if "--text-only" in extra_args or variant == "text":
         return set(DEFAULT_CAPABILITIES) - {"speech", "audio_output"}
 
     return set(DEFAULT_CAPABILITIES)

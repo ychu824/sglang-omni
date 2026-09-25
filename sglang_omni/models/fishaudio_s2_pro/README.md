@@ -59,8 +59,8 @@ S2-Pro can run on Ascend NPU through the sglang-omni platform abstraction:
         torch_compile_max_bs: 16
   ```
 - Cross-process payloads use SHM transport instead of CUDA IPC.
-- The standard `sgl-omni serve --config examples/configs/s2pro_tts.yaml` command
-  works unchanged; device strings are resolved by `resolve_device_spec`.
+- The standard `sgl-omni serve --model-path fishaudio/s2-pro` command works
+  unchanged; device strings are resolved by `resolve_device_spec`.
 
 ### NPU Validation
 
@@ -68,7 +68,6 @@ Start the service with:
 
 ```bash
 sgl-omni serve --model-path fishaudio/s2-pro \
-  --config examples/configs/s2pro_tts.yaml \
   --port 8000 --allowed-local-media-path .
 ```
 

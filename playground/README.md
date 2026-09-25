@@ -48,7 +48,6 @@ Override ports with `--port` (backend) and `--playground-port` (UI).
 # Or run the backend yourself
 sgl-omni serve \
   --model-path fishaudio/s2-pro \
-  --config examples/configs/s2pro_tts.yaml \
   --port 8000
 
 # …then the UI separately

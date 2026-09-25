@@ -38,8 +38,6 @@ sgl-omni serve \
   --port 8000
 ```
 
-A matching config file is available at `examples/configs/moss_tts_local.yaml`.
-
 Speech input admission follows the text backbone's context metadata rather than
 the generic 4,096-character precheck. Requests that exceed the effective model
 context are rejected with an OpenAI-compatible HTTP 400 error.
@@ -54,7 +52,14 @@ The `vocoder_cuda_graph` pipeline setting controls CUDA graphs for MOSS-Audio-To
 | `vocoder_cuda_graph_frames` | `null` | Override the audio-code frame counts captured by the streaming vocoder. |
 | `vocoder_cuda_graph_min_free_gb` | `3.0` | Minimum free GPU memory before vocoder graph capture; `0` disables this check. |
 
-For non-streaming workloads, set `vocoder_cuda_graph: false` in YAML or pass `--vocoder_cuda_graph false` to leave more GPU memory available for decoding. A complete example is available at `examples/configs/moss_tts_local_non_streaming.yaml`.
+For non-streaming workloads, set `vocoder_cuda_graph: false` in YAML or pass `--vocoder_cuda_graph false` to leave more GPU memory available for decoding:
+
+```bash
+sgl-omni serve \
+  --model-path OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5 \
+  --vocoder_cuda_graph false \
+  --port 8000
+```
 
 The same names are used by the pipeline configuration and the vocoder factory/scheduler APIs. Replace the former `cuda_graph`, `cuda_graph_frames`, and `cuda_graph_min_free_gb` spellings in YAML, CLI overrides, and direct Python calls with the `vocoder_` prefix.
 

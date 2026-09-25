@@ -23,7 +23,6 @@ from benchmarks.tasks.tts import (
     _handle_raw_pcm_streaming_response,
     estimate_moss_tts_duration_tokens,
 )
-from sglang_omni.config.manager import ConfigManager
 from sglang_omni.config.placement import build_stage_placement_plan
 from sglang_omni.config.runtime import resolve_stage_factory_args
 from sglang_omni.models.moss_tts.config import (
@@ -43,6 +42,7 @@ from sglang_omni.models.moss_tts.request_builders import (
 from sglang_omni.models.registry import PIPELINE_CONFIG_REGISTRY
 from sglang_omni.proto import OmniRequest, StagePayload
 from sglang_omni.scheduling.types import RequestOutput
+from tests.unit_test.config.legacy_recipes import RECIPES_BY_FILE, legacy_config
 from tests.unit_test.pipeline.helpers import build_compiled_process_topology
 
 
@@ -152,7 +152,7 @@ def test_moss_tts_config_and_registry_contracts() -> None:
 
 
 def test_moss_tts_production_config_resolves_codec_memory_policy() -> None:
-    config = ConfigManager.from_file("examples/configs/moss_tts.yaml").config
+    config = legacy_config(RECIPES_BY_FILE["moss_tts.yaml"])
 
     assert isinstance(config, MossTTSPipelineConfig)
     stages = {stage.name: stage for stage in config.stages}
@@ -178,7 +178,7 @@ def test_moss_tts_production_config_resolves_codec_memory_policy() -> None:
 
 
 def test_moss_tts_32gb_config_bounds_runtime_memory() -> None:
-    config = ConfigManager.from_file("examples/configs/moss_tts_32gb.yaml").config
+    config = legacy_config(RECIPES_BY_FILE["moss_tts_32gb.yaml"])
 
     # The measured budgets in these files describe the single-process layout.
     assert isinstance(config, MossTTSSingleProcessPipelineConfig)
@@ -206,7 +206,7 @@ def test_moss_tts_32gb_config_bounds_runtime_memory() -> None:
 
 
 def test_moss_tts_24gb_config_bounds_runtime_memory() -> None:
-    config = ConfigManager.from_file("examples/configs/moss_tts_24gb.yaml").config
+    config = legacy_config(RECIPES_BY_FILE["moss_tts_24gb.yaml"])
 
     # The measured budgets in these files describe the single-process layout.
     assert isinstance(config, MossTTSSingleProcessPipelineConfig)

@@ -26,8 +26,13 @@ build step.
    ```bash
    sgl-omni serve \
      --model-path Qwen/Qwen3-Omni-30B-A3B-Instruct \
-     --config examples/configs/qwen3_omni_colocated_h200.yaml \
-     --colocate \
+     --variant speech-colocated \
+     --name qwen3-omni-colocated-h200 \
+     --image_encoder.gpu_memory_fraction 0.017 \
+     --audio_encoder.gpu_memory_fraction 0.017 \
+     --thinker.gpu_memory_fraction 0.769 \
+     --talker_ar.gpu_memory_fraction 0.123 \
+     --code2wav.gpu_memory_fraction 0.014 \
      --port 8765 \
      --enable-realtime
    ```

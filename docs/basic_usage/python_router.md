@@ -55,7 +55,11 @@ launcher:
   num_gpus_per_worker: 1
   worker_host: 127.0.0.1
   worker_base_port: 8011
-  worker_extra_args: "--config examples/configs/qwen3_omni_colocated_h20.yaml --colocate"
+  worker_extra_args: >-
+    --variant speech-colocated --name qwen3-omni-colocated-h20
+    --image_encoder.gpu_memory_fraction 0.025 --audio_encoder.gpu_memory_fraction 0.025
+    --thinker.gpu_memory_fraction 0.75 --talker_ar.gpu_memory_fraction 0.12
+    --code2wav.gpu_memory_fraction 0.02
   wait_timeout: 600
 ```
 
@@ -68,23 +72,25 @@ when the router exits.
 
 `num_gpus_per_worker` controls automatic GPU grouping. The default Qwen3-Omni
 router example uses colocated workers: each complete speech worker runs on one
-GPU through `examples/configs/qwen3_omni_colocated_h20.yaml`. With
-`num_workers: 2` and `num_gpus_per_worker: 1`, the launcher assigns GPU `0` to
-the first worker and GPU `1` to the second worker when two CUDA devices are
-visible.
+GPU through `--variant speech-colocated` with the memory budgets calibrated for
+one H20. With `num_workers: 2` and `num_gpus_per_worker: 1`, the launcher
+assigns GPU `0` to the first worker and GPU `1` to the second worker when two
+CUDA devices are visible.
 
-Use `examples/configs/qwen3_omni_colocated_h200.yaml` instead for single-H200
-workers.
+For single-H200 workers use the H200 profile instead: `--name
+qwen3-omni-colocated-h200` with `image_encoder` 0.017, `audio_encoder` 0.017,
+`thinker` 0.769, `talker_ar` 0.123 and `code2wav` 0.014 (see
+[Launch the Server](qwen3_omni.md#launch-the-server)).
 
 Set `worker_gpu_ids` only when you need explicit placement. Each entry maps one
 `CUDA_VISIBLE_DEVICES` value to one worker, for example
 `worker_gpu_ids: ["0", "1"]` for two one-GPU colocated Qwen3-Omni workers. Use
-`worker_extra_args: "--text-only"` only if you intentionally want text-output
-workers instead of speech-output workers.
+`worker_extra_args: "--text-only"` (or `--variant text`) only if you
+intentionally want text-output workers instead of speech-output workers.
 
 Use `worker_extra_args` for public Omni V1 serve options that are specific to
-the worker process, such as `--mem-fraction-static`, `--thinker.tp_size`, or
-`--text-only`. These arguments are passed to `sgl-omni serve`
+the worker process, such as `--mem-fraction-static`, `--thinker.tp_size`,
+`--variant`, or `--text-only`. These arguments are passed to `sgl-omni serve`
 after the launcher-owned flags. When no memory flags are provided, Omni V1 uses
 its normal auto-sizing path.
 
@@ -109,11 +115,11 @@ launcher:
 ```
 
 If `worker_capabilities` is omitted and `worker_extra_args` contains
-`--text-only`, the router registers the managed workers with the same text-only
-capability set shown above.
+`--text-only` or `--variant text`, the router registers the managed workers
+with the same text-only capability set shown above.
 
-For short audio-input / text-output MMSU-style workloads, use the fused
-text-path Qwen3-Omni config instead of the default speech-colocated worker:
+For short audio-input / text-output MMSU-style workloads, use the text
+Qwen3-Omni pipeline instead of the default speech-colocated worker:
 
 ```yaml
 launcher:
@@ -122,7 +128,10 @@ launcher:
   model_name: qwen3-omni
   num_workers: 2
   num_gpus_per_worker: 1
-  worker_extra_args: "--config examples/configs/qwen3_omni_mmsu.yaml --text-only"
+  worker_extra_args: >-
+    --variant text --name qwen3-omni-mmsu
+    --image_encoder.gpu_memory_fraction 0.025 --audio_encoder.gpu_memory_fraction 0.025
+    --thinker.gpu_memory_fraction 0.75 --thinker.engine.max_running_requests 4
 ```
 
 This keeps preprocessing, encoders, aggregation, thinker, and decode in one
@@ -137,8 +146,13 @@ Qwen3-Omni speech workers on different GPUs and ports:
 CUDA_VISIBLE_DEVICES=0 sgl-omni serve \
   --model-path Qwen/Qwen3-Omni-30B-A3B-Instruct \
   --model-name qwen3-omni \
-  --config examples/configs/qwen3_omni_colocated_h20.yaml \
-  --colocate \
+  --variant speech-colocated \
+  --name qwen3-omni-colocated-h20 \
+  --image_encoder.gpu_memory_fraction 0.025 \
+  --audio_encoder.gpu_memory_fraction 0.025 \
+  --thinker.gpu_memory_fraction 0.75 \
+  --talker_ar.gpu_memory_fraction 0.12 \
+  --code2wav.gpu_memory_fraction 0.02 \
   --host 0.0.0.0 \
   --port 8011
 ```
@@ -147,8 +161,13 @@ CUDA_VISIBLE_DEVICES=0 sgl-omni serve \
 CUDA_VISIBLE_DEVICES=1 sgl-omni serve \
   --model-path Qwen/Qwen3-Omni-30B-A3B-Instruct \
   --model-name qwen3-omni \
-  --config examples/configs/qwen3_omni_colocated_h20.yaml \
-  --colocate \
+  --variant speech-colocated \
+  --name qwen3-omni-colocated-h20 \
+  --image_encoder.gpu_memory_fraction 0.025 \
+  --audio_encoder.gpu_memory_fraction 0.025 \
+  --thinker.gpu_memory_fraction 0.75 \
+  --talker_ar.gpu_memory_fraction 0.12 \
+  --code2wav.gpu_memory_fraction 0.02 \
   --host 0.0.0.0 \
   --port 8012
 ```

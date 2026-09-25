@@ -33,13 +33,12 @@ The pipeline is `preprocessing → tts_engine → vocoder`. By default the vocod
 runs in its own process (GPU memory fractions 0.10 / 0.72 / 0.18 for the three
 stages): its Python decode loop no longer shares the interpreter with the AR
 scheduler, which on H200 lifts single-replica throughput by about 70% at every
-concurrency cap. `config_cls: MossTTSSingleProcessPipelineConfig` restores the
-single-process layout; the bounded 24 GB and 32 GB configurations keep it.
+concurrency cap. `--variant single_process` restores the single-process layout;
+the bounded 24 GB and 32 GB recipes keep it.
 
 ```bash
 sgl-omni serve \
   --model-path OpenMOSS-Team/MOSS-TTS-v1.5 \
-  --config examples/configs/moss_tts.yaml \
   --port 8000
 ```
 
@@ -61,7 +60,16 @@ For the bounded 32 GB qualification layout, use:
 ```bash
 sgl-omni serve \
   --model-path OpenMOSS-Team/MOSS-TTS-v1.5 \
-  --config examples/configs/moss_tts_32gb.yaml \
+  --variant single_process \
+  --preprocessing.factory.device cpu \
+  --preprocessing.factory.compute_dtype bfloat16 \
+  --preprocessing.factory.max_concurrency 1 \
+  --tts_engine.engine.max_running_requests 1 \
+  --tts_engine.engine.mem_fraction_static 0.70 \
+  --tts_engine.engine.cuda_graph_max_bs 1 \
+  --vocoder.factory.dtype bfloat16 \
+  --vocoder.factory.max_batch_size 1 \
+  --vocoder.factory.max_batch_wait_ms 2 \
   --port 8000
 ```
 
@@ -75,7 +83,17 @@ For the directly measured 24 GB layout, use:
 ```bash
 sgl-omni serve \
   --model-path OpenMOSS-Team/MOSS-TTS-v1.5 \
-  --config examples/configs/moss_tts_24gb.yaml \
+  --variant single_process \
+  --preprocessing.factory.device cpu \
+  --preprocessing.factory.compute_dtype bfloat16 \
+  --preprocessing.factory.max_concurrency 1 \
+  --tts_engine.engine.max_running_requests 1 \
+  --tts_engine.engine.max_total_tokens 8192 \
+  --tts_engine.engine.mem_fraction_static 0.78 \
+  --tts_engine.engine.cuda_graph_max_bs 1 \
+  --vocoder.factory.dtype bfloat16 \
+  --vocoder.factory.max_batch_size 1 \
+  --vocoder.factory.max_batch_wait_ms 2 \
   --port 8000
 ```
 

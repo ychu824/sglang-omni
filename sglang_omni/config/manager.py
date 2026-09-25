@@ -8,7 +8,7 @@ from sglang_omni.config.patch import ConfigPatchSet
 from sglang_omni.config.resolver import ConfigResolver
 from sglang_omni.config.schema import PipelineConfig
 from sglang_omni.config.sources import patches_from_dotted_cli, sources_from_config_file
-from sglang_omni.models.registry import PIPELINE_CONFIG_REGISTRY
+from sglang_omni.models.registry import PIPELINE_CONFIG_REGISTRY, pipeline_variants
 from sglang_omni.utils import (
     architecture_from_hf_config,
     try_resolve_arch_from_auk_layout,
@@ -17,6 +17,48 @@ from sglang_omni.utils import (
     try_resolve_arch_from_nemo_config,
     try_resolve_arch_from_raw_config,
 )
+
+
+class VariantSelectionError(ValueError):
+    """The requested variant is not one the resolved model declares."""
+
+
+def resolve_variant_selection(
+    *,
+    variant: str | None,
+    text_only: bool,
+    config: str | None,
+    colocate: bool = False,
+) -> str | None:
+    """Reduce the pipeline-selection flags to the variant key to load.
+
+    Shared by serve and the config commands so they agree on which flag
+    combinations select a pipeline. None means the model's EntryClass, or
+    the config file's own config_cls when a file is given. Only the new
+    --variant flag is validated here: --text-only keeps its historical
+    meaning, including being ignored next to --config.
+    """
+    if variant is None:
+        return "text" if text_only and not config else None
+    elif not variant:
+        raise ValueError("--variant must name a pipeline variant; it cannot be empty")
+    elif colocate:
+        raise ValueError(
+            "--variant cannot be combined with --colocate; select the colocated "
+            "pipeline with --variant speech-colocated instead"
+        )
+    elif config:
+        raise ValueError(
+            "--variant cannot be combined with --config: the file's config_cls "
+            "already selects the pipeline topology"
+        )
+    elif text_only and variant != "text":
+        raise ValueError(
+            f"--text-only selects the text variant, which conflicts with "
+            f"--variant {variant}"
+        )
+    else:
+        return variant
 
 
 def resolve_config_cls_for_model_path(model_path: str):
@@ -143,25 +185,26 @@ class ConfigManager:
 
     @staticmethod
     def from_model_path(model_path: str, variant: str | None = None) -> "ConfigManager":
-        """Load config from model path, optionally selecting a variant."""
-        import importlib
+        """Load config from model path, optionally selecting a variant.
 
+        The model's architecture picks its config module; variant names one
+        of that module's Variants instead of its EntryClass. The key is
+        matched exactly, so a name the module does not declare, including the
+        empty string, raises VariantSelectionError.
+        """
         config_cls = resolve_config_cls_for_model_path(model_path)
-
-        if variant:
-            module = importlib.import_module(config_cls.__module__)
-            variants = getattr(module, "Variants", None)
-            if variants and variant in variants:
-                config_cls = variants[variant]
-            else:
-                raise ValueError(
-                    f"Unknown variant '{variant}' for {config_cls.__name__}"
-                )
+        variants = pipeline_variants(config_cls)
+        if variant is None:
+            selected_cls = config_cls
+        elif variant in variants:
+            selected_cls = variants[variant]
         else:
-            pass
-
-        config = config_cls(model_path=model_path)
-        return ConfigManager(config)
+            available = ", ".join(sorted(variants)) or "none"
+            raise VariantSelectionError(
+                f"Unknown variant {variant!r} for {model_path!r}: "
+                f"{config_cls.__name__} declares variants: {available}"
+            )
+        return ConfigManager(selected_cls(model_path=model_path))
 
     @staticmethod
     def from_file(file_path: str) -> "ConfigManager":

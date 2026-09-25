@@ -7,7 +7,14 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PositiveInt,
+    field_validator,
+    model_validator,
+)
 
 if TYPE_CHECKING:
     from sglang_omni.serve.realtime.transcription_session import StreamingASRStrategy
@@ -151,6 +158,7 @@ class EngineArgs(BaseModel):
     max_running_requests: int | None = Field(default=None, ge=1)
     max_total_tokens: int | None = Field(default=None, ge=1)
     cuda_graph_max_bs: int | None = Field(default=None, ge=1)
+    cuda_graph_bs: list[PositiveInt] | None = Field(default=None, min_length=1)
     disable_cuda_graph: bool | None = None
     enable_torch_compile: bool | None = None
     torch_compile_max_bs: int | None = Field(default=None, ge=1)

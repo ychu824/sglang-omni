@@ -35,14 +35,60 @@ The provided configuration uses TP1 on GPU 0.
 
 ## Server Configuration
 
+Stage topology (routing, factories, streaming) lives in the model's pipeline
+config; the recipe below tunes placement, memory budgets and per-stage knobs
+for one GPU:
+
 ```bash
 sgl-omni serve \
   --model-path inclusionAI/Ming-omni-tts-16.8B-A3B \
-  --config examples/configs/ming_omni_tts.yaml \
+  --name ming-omni-tts \
+  --preprocessing.process preprocessing \
+  --preprocessing.factory.context_length 8192 \
+  --preprocessing.factory.max_decode_steps_cap 256 \
+  --preprocessing.factory.max_concurrency 1 \
+  --reference_encode.process ming_tts_aux \
+  --reference_encode.gpu 0 \
+  --reference_encode.gpu_memory_fraction 0.08 \
+  --reference_encode.factory.dtype bfloat16 \
+  --reference_encode.factory.context_length 8192 \
+  --reference_encode.factory.max_concurrency 1 \
+  --tts_engine.process tts_engine \
+  --tts_engine.gpu 0 \
+  --tts_engine.tp_size 1 \
+  --tts_engine.gpu_memory_fraction 0.72 \
+  --tts_engine.factory.dtype bfloat16 \
+  --tts_engine.factory.context_length 8192 \
+  --tts_engine.engine.disable_cuda_graph false \
+  --tts_engine.engine.disable_overlap_schedule true \
+  --tts_engine.engine.disable_radix_cache true \
+  --tts_engine.engine.enable_torch_compile false \
+  --tts_engine.engine.max_prefill_tokens 8192 \
+  --tts_engine.engine.max_running_requests 8 \
+  --tts_engine.engine.sampling_backend pytorch \
+  --tts_engine.engine.trust_remote_code false \
+  --tts_engine.engine.chunked_prefill_size 0 \
+  --tts_engine.engine.mem_fraction_static 0.75 \
+  --tts_engine.engine.cuda_graph_bs "[1, 2, 4, 8]" \
+  --tts_engine.engine.cuda_graph_max_bs 8 \
+  --audio_decode.process ming_tts_aux \
+  --audio_decode.gpu 0 \
+  --audio_decode.gpu_memory_fraction 0.12 \
+  --audio_decode.factory.dtype bfloat16 \
+  --audio_decode.factory.initial_chunk_patches 2 \
+  --audio_decode.factory.steady_chunk_patches 4 \
+  --audio_decode.factory.streaming_cuda_graph true \
+  --audio_decode.factory.stream_slots 8 \
+  --audio_decode.factory.max_batch_size 1 \
+  --audio_decode.factory.max_batch_wait_ms 0 \
   --port 8000
 ```
 
-The provided configuration enables the AR and acoustic-tail CUDA graphs and a fixed-width CUDA
+To keep the recipe as a file, save it once with `sgl-omni config resolve <the
+same arguments> --show config > ming_omni_tts.yaml` and launch with `--config
+ming_omni_tts.yaml`.
+
+The recipe enables the AR and acoustic-tail CUDA graphs and a fixed-width CUDA
 graph for streaming AudioVAE transitions. Non-streaming full-sequence AudioVAE decode remains
 compact eager, and requests are non-streaming unless `stream` is set.
 
@@ -53,11 +99,11 @@ during config loading: remove `decode_mode` from the audio_decode stage's
 `factory` group, because non-streaming chunked decode is no longer supported;
 set `tts_engine.stream_to` to `[audio_decode]` to declare the latent stream edge; and set
 `audio_decode.can_accept_stream_before_payload` to `true` so the consumer accepts latents that
-arrive while generation is still running. The provided YAML already carries all three.
+arrive while generation is still running. The default pipeline already carries all three.
 
-Cross-request non-streaming AudioVAE batching is not implemented yet. The only supported non-streaming batch configuration is `max_batch_size: 1` with `max_batch_wait_ms: 0`, as shown in the provided YAML; other values are rejected before the server starts.
+Cross-request non-streaming AudioVAE batching is not implemented yet. The only supported non-streaming batch configuration is `max_batch_size: 1` with `max_batch_wait_ms: 0`, as in the recipe above; other values are rejected before the server starts.
 
-`stream_slots` is the maximum number of streaming requests that the AudioVAE decoder can keep active at the same time. Each active stream uses one slot to preserve its decoding progress between audio chunks. If all slots are occupied, additional streams wait until a slot is released. The provided configuration uses `stream_slots: 8` to match its concurrency-8 workload. Increasing it supports more simultaneous streams but uses more GPU memory and fixed-graph work; reducing it lowers those costs but also lowers streaming concurrency. It does not change non-streaming batching.
+`stream_slots` is the maximum number of streaming requests that the AudioVAE decoder can keep active at the same time. Each active stream uses one slot to preserve its decoding progress between audio chunks. If all slots are occupied, additional streams wait until a slot is released. The recipe above uses `stream_slots 8` to match its concurrency-8 workload. Increasing it supports more simultaneous streams but uses more GPU memory and fixed-graph work; reducing it lowers those costs but also lowers streaming concurrency. It does not change non-streaming batching.
 
 ## Synthesizing Speech
 
@@ -77,14 +123,10 @@ curl -X POST http://localhost:8000/v1/audio/speech \
 ### Voice Cloning
 
 Ming-Omni-TTS currently accepts one local reference clip and requires its transcript. Start the
-server with access to the directory containing the clip:
+server (the recipe above) with access to the directory containing the clip by adding:
 
 ```bash
-sgl-omni serve \
-  --model-path inclusionAI/Ming-omni-tts-16.8B-A3B \
-  --config examples/configs/ming_omni_tts.yaml \
-  --allowed-local-media-path /path/to/references \
-  --port 8000
+  --allowed-local-media-path /path/to/references
 ```
 
 Then submit the reference as a `file://` URL:

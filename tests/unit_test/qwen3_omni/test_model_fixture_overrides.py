@@ -51,7 +51,7 @@ def test_full_model_fixture_context_override_targets_thinker_not_decode(
     tokens = shlex.split(fixture_args)
     stage_tokens = []
     for index, token in enumerate(tokens):
-        if token.startswith("--preprocessing.") or token.startswith("--thinker."):
+        if token.endswith(".factory.max_seq_len"):
             stage_tokens.extend((token, tokens[index + 1]))
 
     manager = ConfigManager(speech_config())

@@ -46,7 +46,12 @@ from sglang_omni.config.patch import (
     SourceKind,
     Specificity,
 )
-from sglang_omni.config.path import ConfigPath, ConfigPathError, SegmentKind
+from sglang_omni.config.path import (
+    ConfigPath,
+    ConfigPathError,
+    PathVisibility,
+    SegmentKind,
+)
 from sglang_omni.config.schema import PipelineConfig
 
 __all__ = [
@@ -519,12 +524,20 @@ def dump_user_config(config: PipelineConfig) -> dict[str, Any]:
     The internal stage list becomes the user-facing ``stages:`` mapping: the
     key carries the name (so ``name`` leaves the body), and a non-engine
     stage's ``engine: null`` placeholder is dropped because writing below it
-    is a path error. ``entry_stage`` is dropped too -- it belongs to the
-    model's config class, not to a config file. The result round-trips
-    through :func:`sources_from_config_file` back to an equal config.
+    is a path error. ``entry_stage`` and the stages' topology fields are
+    dropped too -- they belong to the model's config class, not to a config
+    file -- and so is the ``audio_chunking`` block on a pipeline whose model
+    declares no chunking, where writing it is a path error as well. The
+    result round-trips through :func:`sources_from_config_file` back to an
+    equal config.
     """
+    config_cls = type(config)
     data = config.model_dump(mode="json")
     data.pop("entry_stage", None)
+    if not config_cls.allow_audio_chunking:
+        data.pop("audio_chunking", None)
+    else:
+        pass
     stages: dict[str, Any] = {}
     for stage in data.get("stages", []):
         body = dict(stage)
@@ -533,7 +546,14 @@ def dump_user_config(config: PipelineConfig) -> dict[str, Any]:
             body.pop("engine", None)
         else:
             pass
-        stages[stage["name"]] = body
+        # Topology fields (factory_path, next, terminal, ...) belong to the
+        # config class; a file may not write them, so the dump omits them.
+        stages[stage["name"]] = {
+            key: value
+            for key, value in body.items()
+            if ConfigPath.parse(f"stages.{stage['name']}.{key}", config_cls).visibility
+            is PathVisibility.PUBLIC
+        }
     data["stages"] = stages
     return data
 

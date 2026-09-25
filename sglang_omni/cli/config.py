@@ -9,7 +9,11 @@ import typer
 import yaml
 
 from sglang_omni.config.compat import canonicalize_dotted_key
-from sglang_omni.config.manager import ConfigManager, resolve_config_cls_for_model_path
+from sglang_omni.config.manager import (
+    ConfigManager,
+    VariantSelectionError,
+    resolve_variant_selection,
+)
 from sglang_omni.config.patch import (
     ConfigPatch,
     ConfigPatchSet,
@@ -33,6 +37,10 @@ config_app = typer.Typer(help="Inspect, resolve and export the pipeline configur
 _MODEL_PATH_HELP = "The Hugging Face model ID or the path to the model directory."
 _CONFIG_HELP = "Path to a pipeline config file, as accepted by `sgl-omni serve`."
 _TEXT_ONLY_HELP = "Use the thinker-only pipeline, as `sgl-omni serve --text-only` does."
+_VARIANT_HELP = (
+    "Pipeline variant of the resolved model, as `sgl-omni serve --variant` "
+    "selects it. Not combinable with --config."
+)
 _MEM_FRACTION_HELP = (
     "Set engine.mem_fraction_static on every SGLang engine stage, as "
     "`sgl-omni serve --mem-fraction-static` does."
@@ -49,38 +57,45 @@ def dump_yaml(data: Any) -> str:
     )
 
 
+def default_config(model_path: str, variant: str | None) -> PipelineConfig:
+    """The model's (or its variant's) pipeline defaults, no sources applied."""
+    try:
+        return ConfigManager.from_model_path(model_path, variant=variant).config
+    except VariantSelectionError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+
+
 @config_app.command()
 def view(
-    model_path: Annotated[
-        str,
-        typer.Option(
-            help="The Hugging Face model ID or the path to the model directory."
-        ),
-    ],
+    model_path: Annotated[str, typer.Option(help=_MODEL_PATH_HELP)],
+    variant: Annotated[
+        str | None, typer.Option("--variant", help=_VARIANT_HELP)
+    ] = None,
 ) -> None:
-    """View the model's pipeline configuration."""
-    config_cls = resolve_config_cls_for_model_path(model_path)
-    config = config_cls(model_path=model_path)
-    print(dump_yaml(dump_user_config(config)))
+    """View the model's default pipeline configuration.
+
+    Defaults only: to preview a launch with overrides applied, use
+    `sgl-omni config resolve` with the same arguments as `serve`.
+    """
+    print(dump_yaml(dump_user_config(default_config(model_path, variant))))
 
 
 @config_app.command()
 def export(
-    model_path: Annotated[
-        str,
-        typer.Option(
-            help="The Hugging Face model ID or the path to the model directory."
-        ),
-    ],
+    model_path: Annotated[str, typer.Option(help=_MODEL_PATH_HELP)],
+    variant: Annotated[
+        str | None, typer.Option("--variant", help=_VARIANT_HELP)
+    ] = None,
     output_path: Annotated[
-        str, typer.Option(help="Path to the output JSON file.")
+        str, typer.Option(help="Path to the output YAML file.")
     ] = None,
 ) -> None:
-    """Export the default pipeline configuration to a YAML file."""
-    # get the default pipeline config for the model
+    """Export the default pipeline configuration to a YAML file.
 
-    config_cls = resolve_config_cls_for_model_path(model_path)
-    config = config_cls(model_path=model_path)
+    Defaults only: to save a complete recipe with overrides applied, redirect
+    `sgl-omni config resolve ... --show config` to a file instead.
+    """
+    config = default_config(model_path, variant)
 
     # export config in a yaml file
     if output_path is None:
@@ -122,6 +137,7 @@ def resolve_sources(
     text_only: bool,
     mem_fraction_static: float | None,
     argv: list[str],
+    variant: str | None = None,
 ) -> Resolution:
     """Build the configuration ``sgl-omni serve`` would build from this input.
 
@@ -143,6 +159,12 @@ def resolve_sources(
         raise typer.BadParameter("--model-path is required unless --config is set")
     else:
         pass
+    try:
+        selected_variant = resolve_variant_selection(
+            variant=variant, text_only=text_only, config=config_file
+        )
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
 
     try:
         if config_file:
@@ -156,9 +178,12 @@ def resolve_sources(
             else:
                 pass
         else:
-            manager = ConfigManager.from_model_path(
-                str(model_path), variant="text" if text_only else None
-            )
+            try:
+                manager = ConfigManager.from_model_path(
+                    str(model_path), variant=selected_variant
+                )
+            except VariantSelectionError as exc:
+                raise typer.BadParameter(str(exc)) from exc
             baseline, patches = manager.config, ConfigPatchSet()
 
         patches = patches.merge(
@@ -217,6 +242,9 @@ def resolve(
     ctx: typer.Context,
     model_path: Annotated[str | None, typer.Option(help=_MODEL_PATH_HELP)] = None,
     config: Annotated[str | None, typer.Option(help=_CONFIG_HELP)] = None,
+    variant: Annotated[
+        str | None, typer.Option("--variant", help=_VARIANT_HELP)
+    ] = None,
     text_only: Annotated[
         bool, typer.Option("--text-only", help=_TEXT_ONLY_HELP)
     ] = False,
@@ -248,6 +276,7 @@ def resolve(
         text_only=text_only,
         mem_fraction_static=mem_fraction_static,
         argv=ctx.args,
+        variant=variant,
     )
     provenance = resolution.resolved.provenance
 
@@ -306,6 +335,9 @@ def explain(
     ),
     model_path: Annotated[str | None, typer.Option(help=_MODEL_PATH_HELP)] = None,
     config: Annotated[str | None, typer.Option(help=_CONFIG_HELP)] = None,
+    variant: Annotated[
+        str | None, typer.Option("--variant", help=_VARIANT_HELP)
+    ] = None,
     text_only: Annotated[
         bool, typer.Option("--text-only", help=_TEXT_ONLY_HELP)
     ] = False,
@@ -324,6 +356,7 @@ def explain(
         text_only=text_only,
         mem_fraction_static=mem_fraction_static,
         argv=ctx.args,
+        variant=variant,
     )
     provenance = resolution.resolved.provenance
 

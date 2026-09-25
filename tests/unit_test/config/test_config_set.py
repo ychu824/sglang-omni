@@ -491,3 +491,65 @@ def test_placement_owned_factory_keys_are_rejected_at_config_validation():
                 )
             ],
         )
+
+
+class TestGraphBatchSizes:
+    """engine.cuda_graph_bs is a declared list: the CLI parses it into integers
+    instead of forwarding the text, and an unset or cleared value is omitted
+    from the overrides like every other declared engine key."""
+
+    def test_the_cli_text_becomes_a_list_of_integers(self, pipeline_config):
+        merged = ConfigManager(pipeline_config).merge_config(
+            [("thinker.engine.cuda_graph_bs", "[1, 2, 4, 8]")]
+        )
+        overrides = merged.stage_named("thinker").engine.overrides()
+
+        assert overrides["cuda_graph_bs"] == [1, 2, 4, 8]
+        assert all(type(size) is int for size in overrides["cuda_graph_bs"])
+
+    def test_yaml_lists_keep_their_integers(self, pipeline_config):
+        patches = patches_from_stages_mapping(
+            {"thinker": {"engine": {"cuda_graph_bs": [1, 2, 4, 8]}}},
+            type(pipeline_config),
+            ["preprocessing", "thinker"],
+        )
+        resolved = ConfigResolver(pipeline_config).resolve(patches).config
+
+        assert resolved.stage_named("thinker").engine.overrides()["cuda_graph_bs"] == [
+            1,
+            2,
+            4,
+            8,
+        ]
+
+    @pytest.mark.parametrize("text", ["[]", "[0, 2]", "[1.5]", "8", "abc"])
+    def test_anything_but_positive_integers_is_refused(self, pipeline_config, text):
+        with pytest.raises(ValueError, match="cuda_graph_bs"):
+            ConfigManager(pipeline_config).merge_config(
+                [("thinker.engine.cuda_graph_bs", text)]
+            )
+
+    def test_unset_and_cleared_values_leave_sglang_in_charge(self, pipeline_config):
+        untouched = ConfigManager(pipeline_config).merge_config([])
+        cleared = ConfigManager(pipeline_config).merge_config(
+            [("thinker.engine.cuda_graph_bs", "none")]
+        )
+
+        assert (
+            "cuda_graph_bs" not in untouched.stage_named("thinker").engine.overrides()
+        )
+        assert "cuda_graph_bs" not in cleared.stage_named("thinker").engine.overrides()
+
+    def test_the_prefill_list_stays_a_free_form_key(self, pipeline_config):
+        """Only the decode list is declared; the prefill spelling keeps the
+        free-form scalar parsing it had."""
+        merged = ConfigManager(pipeline_config).merge_config(
+            [("thinker.engine.cuda_graph_max_bs_prefill", "2048")]
+        )
+
+        assert (
+            merged.stage_named("thinker").engine.overrides()[
+                "cuda_graph_max_bs_prefill"
+            ]
+            == 2048
+        )

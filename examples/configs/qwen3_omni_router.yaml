@@ -6,5 +6,12 @@ launcher:
   num_gpus_per_worker: 1
   worker_host: 127.0.0.1
   worker_base_port: 8011
-  worker_extra_args: "--config examples/configs/qwen3_omni_colocated_h20.yaml --colocate"
+  # The single-H20 colocated profile: the speech-colocated topology plus the
+  # per-stage memory budgets calibrated for one H20 (about 6% of device
+  # memory stays outside stage budgets for graph capture and workspaces).
+  worker_extra_args: >-
+    --variant speech-colocated --name qwen3-omni-colocated-h20
+    --image_encoder.gpu_memory_fraction 0.025 --audio_encoder.gpu_memory_fraction 0.025
+    --thinker.gpu_memory_fraction 0.75 --talker_ar.gpu_memory_fraction 0.12
+    --code2wav.gpu_memory_fraction 0.02
   wait_timeout: 600

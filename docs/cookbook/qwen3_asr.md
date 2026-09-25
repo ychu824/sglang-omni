@@ -137,7 +137,11 @@ For a single 24 GB RTX 4090 (SM89), use the checked-in consumer profile:
 
 ```bash
 sgl-omni serve \
-  --config examples/configs/qwen3_asr_rtx4090.yaml \
+  --model-path Qwen/Qwen3-ASR-1.7B \
+  --name qwen3-asr-rtx4090 \
+  --asr.factory.dtype bfloat16 \
+  --asr.engine.max_running_requests 16 \
+  --asr.engine.mem_fraction_static 0.65 \
   --port 8000
 ```
 
@@ -150,7 +154,13 @@ For a single 32 GB RTX 5090, use:
 
 ```bash
 sgl-omni serve \
-  --config examples/configs/qwen3_asr_rtx5090.yaml \
+  --model-path Qwen/Qwen3-ASR-1.7B \
+  --name qwen3-asr-rtx5090 \
+  --asr.factory.dtype bfloat16 \
+  --asr.engine.max_running_requests 16 \
+  --asr.engine.cuda_graph_max_bs 16 \
+  --asr.engine.mem_fraction_static 0.65 \
+  --asr.engine.enable_torch_compile false \
   --port 8000
 ```
 

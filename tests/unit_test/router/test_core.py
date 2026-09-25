@@ -241,10 +241,21 @@ def test_router_cli_uses_managed_worker_capabilities() -> None:
     assert config.workers[0].capabilities == {"chat", "streaming", "image_input"}
 
 
-def test_router_cli_infers_text_only_managed_worker_capabilities() -> None:
+@pytest.mark.parametrize(
+    "worker_extra_args",
+    [
+        "--text-only --mem-fraction-static 0.7",
+        "--variant text --mem-fraction-static 0.7",
+        "--variant=text --mem-fraction-static 0.7",
+        "--variant text --text-only",
+    ],
+)
+def test_router_cli_infers_text_only_managed_worker_capabilities(
+    worker_extra_args: str,
+) -> None:
     launcher_config = LocalLauncherConfig(
         model_path="model",
-        worker_extra_args="--text-only --mem-fraction-static 0.7",
+        worker_extra_args=worker_extra_args,
     )
     args = build_parser().parse_args(["--launcher-config", "launcher.yaml"])
 
@@ -264,6 +275,36 @@ def test_router_cli_infers_text_only_managed_worker_capabilities() -> None:
         "audio_input",
         "video_input",
     }
+
+
+@pytest.mark.parametrize(
+    "worker_extra_args",
+    [
+        "",
+        "--variant speech-colocated --thinker.gpu_memory_fraction 0.75",
+        "--variant=speech --mem-fraction-static 0.7",
+    ],
+)
+def test_router_cli_keeps_speech_capabilities_for_speech_variants(
+    worker_extra_args: str,
+) -> None:
+    launcher_config = LocalLauncherConfig(
+        model_path="model", worker_extra_args=worker_extra_args
+    )
+
+    assert resolve_managed_worker_capabilities(launcher_config) == set(
+        DEFAULT_CAPABILITIES
+    )
+
+
+def test_router_cli_explicit_capabilities_outrank_the_variant() -> None:
+    launcher_config = LocalLauncherConfig(
+        model_path="model",
+        worker_extra_args="--variant text",
+        worker_capabilities={"chat", "speech"},
+    )
+
+    assert resolve_managed_worker_capabilities(launcher_config) == {"chat", "speech"}
 
 
 def test_router_worker_config_requires_workers_object(tmp_path: Path) -> None:

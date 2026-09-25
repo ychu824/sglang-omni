@@ -14,9 +14,8 @@ from sglang_omni.models.qwen3_omni.config import (
     Qwen3OmniSpeechColocatedPipelineConfig,
     Qwen3OmniSpeechPipelineConfig,
 )
+from tests.unit_test.config.legacy_recipes import RECIPES_BY_FILE, legacy_config
 from tests.unit_test.pipeline.helpers import build_compiled_process_topology
-
-REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def make_stage(config, name: str):
@@ -86,11 +85,8 @@ def test_config_manager_rejects_trailing_key_without_value() -> None:
         )
 
 
-def test_qwen3_omni_h20_colocated_example_config_loads_and_plans() -> None:
-    config_path = REPO_ROOT / "examples" / "configs" / "qwen3_omni_colocated_h20.yaml"
-
-    manager = ConfigManager.from_file(str(config_path))
-    config = manager.config
+def test_qwen3_omni_h20_colocated_recipe_loads_and_plans() -> None:
+    config = legacy_config(RECIPES_BY_FILE["qwen3_omni_colocated_h20.yaml"])
     plan = build_stage_placement_plan(config)
     topology = build_compiled_process_topology(config)
 
@@ -128,11 +124,8 @@ def test_qwen3_omni_h20_colocated_example_config_loads_and_plans() -> None:
     }
 
 
-def test_qwen3_omni_mmsu_example_config_uses_text_pipeline() -> None:
-    config_path = REPO_ROOT / "examples" / "configs" / "qwen3_omni_mmsu.yaml"
-
-    manager = ConfigManager.from_file(str(config_path))
-    config = manager.config
+def test_qwen3_omni_mmsu_recipe_uses_text_pipeline() -> None:
+    config = legacy_config(RECIPES_BY_FILE["qwen3_omni_mmsu.yaml"])
     plan = build_stage_placement_plan(config)
     thinker_args = resolve_stage_factory_args(make_stage(config, "thinker"), config)
 
@@ -165,9 +158,8 @@ def test_qwen_preprocessing_model_video_fps_resolves_to_factory_arg() -> None:
     assert args["video_fps"] == 2.0
 
 
-def test_h20_colocated_example_reserve_keeps_raw_budget_in_resolved_config() -> None:
-    config_path = REPO_ROOT / "examples" / "configs" / "qwen3_omni_colocated_h20.yaml"
-    config = ConfigManager.from_file(str(config_path)).config
+def test_h20_colocated_recipe_reserve_keeps_raw_budget_in_resolved_config() -> None:
+    config = legacy_config(RECIPES_BY_FILE["qwen3_omni_colocated_h20.yaml"])
 
     merged = ConfigManager(config).merge_config(
         [("thinker.factory.encoder_mem_reserve", "0.05")]
@@ -236,15 +228,8 @@ stages:
         ConfigManager.from_file(str(config_path))
 
 
-def test_qwen3_omni_h100_bf16_config_enables_speech_prefill_graph() -> None:
-    from pathlib import Path
-
-    repo_root = Path(__file__).resolve().parents[3]
-    config_path = (
-        repo_root / "examples" / "configs" / "qwen3_omni_colocated_h100_bf16.yaml"
-    )
-
-    config = ConfigManager.from_file(str(config_path)).config
+def test_qwen3_omni_h100_bf16_recipe_enables_speech_prefill_graph() -> None:
+    config = legacy_config(RECIPES_BY_FILE["qwen3_omni_colocated_h100_bf16.yaml"])
     overrides = make_stage(config, "thinker").engine.overrides()
 
     assert isinstance(config, Qwen3OmniSpeechColocatedPipelineConfig)
@@ -254,12 +239,8 @@ def test_qwen3_omni_h100_bf16_config_enables_speech_prefill_graph() -> None:
     assert overrides["cuda_graph_max_bs_prefill"] == 2048
 
 
-def test_qwen3_omni_gfx950_bf16_config_uses_colocated_budgets() -> None:
-    config_path = (
-        REPO_ROOT / "examples" / "configs" / "qwen3_omni_colocated_gfx950_bf16.yaml"
-    )
-
-    config = ConfigManager.from_file(str(config_path)).config
+def test_qwen3_omni_gfx950_bf16_recipe_uses_colocated_budgets() -> None:
+    config = legacy_config(RECIPES_BY_FILE["qwen3_omni_colocated_gfx950_bf16.yaml"])
     plan = build_stage_placement_plan(config)
     overrides = make_stage(config, "thinker").engine.overrides()
 
@@ -317,11 +298,8 @@ def test_qwen3_omni_talker_stage_env_defaults(
         assert make_stage(config, "thinker").env == {}
 
 
-def test_qwen3_omni_xpu_b60_example_config_loads_and_plans() -> None:
-    config_path = REPO_ROOT / "examples" / "configs" / "qwen3_omni_speech_xpu_b60.yaml"
-
-    manager = ConfigManager.from_file(str(config_path))
-    config = manager.config
+def test_qwen3_omni_xpu_b60_recipe_loads_and_plans() -> None:
+    config = legacy_config(RECIPES_BY_FILE["qwen3_omni_speech_xpu_b60.yaml"])
     plan = build_stage_placement_plan(config)
     topology = build_compiled_process_topology(config)
 
@@ -382,3 +360,97 @@ def test_talker_start_topology_reaches_bootstrap(monkeypatch, enabled):
     assert received["enable_talker_start_topology"] is enabled
     assert received["enable_partial_start"] is True
     assert received["partial_start_min_chunks"] == 5
+
+
+@pytest.mark.parametrize(
+    ("variant", "config_cls"),
+    [
+        (None, Qwen3OmniSpeechPipelineConfig),
+        ("text", Qwen3OmniPipelineConfig),
+        ("speech", Qwen3OmniSpeechPipelineConfig),
+        ("speech-colocated", Qwen3OmniSpeechColocatedPipelineConfig),
+    ],
+)
+def test_from_model_path_variant_selects_from_the_module_variants(
+    monkeypatch, variant, config_cls
+) -> None:
+    from sglang_omni.config import manager
+
+    monkeypatch.setattr(
+        manager,
+        "resolve_config_cls_for_model_path",
+        lambda model_path: Qwen3OmniSpeechPipelineConfig,
+    )
+
+    config = ConfigManager.from_model_path("dummy", variant=variant).config
+
+    assert type(config) is config_cls
+    assert config.model_path == "dummy"
+
+
+def test_from_model_path_names_the_variants_a_model_declares(monkeypatch) -> None:
+    from sglang_omni.config import manager
+    from sglang_omni.models.qwen3_tts.config import Qwen3TTSPipelineConfig
+
+    monkeypatch.setattr(
+        manager,
+        "resolve_config_cls_for_model_path",
+        lambda model_path: Qwen3OmniSpeechPipelineConfig,
+    )
+    with pytest.raises(
+        manager.VariantSelectionError,
+        match="'speech_colocated' for 'dummy'.*variants: speech, speech-colocated, text",
+    ):
+        ConfigManager.from_model_path("dummy", variant="speech_colocated")
+    with pytest.raises(manager.VariantSelectionError, match="Unknown variant ''"):
+        ConfigManager.from_model_path("dummy", variant="")
+
+    # A model without a Variants map declares none, rather than a default.
+    monkeypatch.setattr(
+        manager,
+        "resolve_config_cls_for_model_path",
+        lambda model_path: Qwen3TTSPipelineConfig,
+    )
+    with pytest.raises(manager.VariantSelectionError, match="variants: none"):
+        ConfigManager.from_model_path("dummy", variant="default")
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "expected"),
+    [
+        (dict(variant=None, text_only=False, config=None), None),
+        (dict(variant=None, text_only=True, config=None), "text"),
+        (dict(variant=None, text_only=True, config="pipeline.yaml"), None),
+        (dict(variant="text", text_only=True, config=None), "text"),
+        (dict(variant="speech", text_only=False, config=None), "speech"),
+    ],
+)
+def test_resolve_variant_selection_keeps_the_historical_combinations(
+    kwargs, expected
+) -> None:
+    from sglang_omni.config.manager import resolve_variant_selection
+
+    assert resolve_variant_selection(**kwargs) == expected
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        (dict(variant="", text_only=False, config=None), "cannot be empty"),
+        (dict(variant="speech", text_only=False, config="p.yaml"), "config_cls"),
+        (dict(variant="speech", text_only=True, config=None), "conflicts with"),
+        (
+            dict(
+                variant="speech-colocated", text_only=False, config=None, colocate=True
+            ),
+            "--colocate",
+        ),
+    ],
+)
+def test_resolve_variant_selection_refuses_ambiguous_combinations(
+    kwargs, message
+) -> None:
+    from sglang_omni.config.manager import resolve_variant_selection
+
+    with pytest.raises(ValueError, match=message):
+        resolve_variant_selection(**kwargs)

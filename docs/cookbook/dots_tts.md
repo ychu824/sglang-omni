@@ -17,9 +17,9 @@ dots.tts is a continuous-latent model, not a codec model. The backbone emits no 
 
 | Checkpoint | Status |
 |---|---|
-| [`dots-studio/dots.tts-mf`](https://huggingface.co/dots-studio/dots.tts-mf) | MeanFlow. Continuous batching, `num_steps=4`. `examples/configs/dots_tts.yaml` |
-| [`dots-studio/dots.tts-soar`](https://huggingface.co/dots-studio/dots.tts-soar) | Flow matching. Single request at a time (`max_running_requests=1`) with CFG, `num_steps=10`. `examples/configs/dots_tts_soar.yaml` |
-| [`dots-studio/dots.tts-base`](https://huggingface.co/dots-studio/dots.tts-base) | Flow matching, same as SOAR. Serve it with `examples/configs/dots_tts_soar.yaml` and `--model-path dots-studio/dots.tts-base` |
+| [`dots-studio/dots.tts-mf`](https://huggingface.co/dots-studio/dots.tts-mf) | MeanFlow. Continuous batching, `num_steps=4`. The MeanFlow recipe below |
+| [`dots-studio/dots.tts-soar`](https://huggingface.co/dots-studio/dots.tts-soar) | Flow matching. Single request at a time (`max_running_requests=1`) with CFG, `num_steps=10`. The SOAR recipe below |
+| [`dots-studio/dots.tts-base`](https://huggingface.co/dots-studio/dots.tts-base) | Flow matching, same as SOAR. Serve it with the SOAR recipe and `--model-path dots-studio/dots.tts-base` |
 
 ## Prerequisites
 
@@ -29,31 +29,56 @@ Install `sglang-omni` by following [Installation](../get_started/installation.md
 hf download dots-studio/dots.tts-mf --revision c28105adc8228143392b4e346994ff613ee48a06
 
 sgl-omni serve \
-  --config examples/configs/dots_tts.yaml \
+  --model-path dots-studio/dots.tts-mf@c28105adc8228143392b4e346994ff613ee48a06 \
+  --preprocessing.factory.num_steps 4 \
+  --preprocessing.factory.max_generate_length 500 \
+  --latent_engine.factory.num_steps 4 \
+  --latent_engine.factory.max_generate_length 500 \
+  --latent_engine.factory.optimize true \
+  --latent_engine.engine.mem_fraction_static 0.20 \
+  --latent_engine.engine.max_running_requests 16 \
+  --latent_engine.engine.disable_cuda_graph false \
+  --latent_engine.engine.cuda_graph_max_bs 16 \
+  --reference_encode.factory.max_concurrency 8 \
+  --reference_encode.factory.max_batch_size 1 \
+  --reference_encode.factory.max_batch_wait_ms 4 \
+  --vocoder.factory.optimize true \
+  --vocoder.factory.max_batch_size 4 \
+  --vocoder.factory.max_batch_wait_ms 2 \
   --allowed-local-media-path docs/_static/audio \
   --port 8000
 ```
 
-`examples/configs/dots_tts.yaml` pins the checkpoint to the snapshot it was
-validated against, so the launch above takes `model_path` from the config.
-`--model-path` overrides that pin, pass it only to serve a different checkpoint
-or revision.
+The recipe pins the checkpoint to the snapshot it was validated against
+(`<repo-id>@<revision>`, the same spec `ensure_hf_models.sh` uses). Bump the
+revision deliberately after revalidating the pipeline.
 
-To serve SOAR instead, swap both the checkpoint and the config:
+To serve SOAR instead, swap both the checkpoint and the solver settings:
 
 ```bash
 hf download dots-studio/dots.tts-soar
 
 sgl-omni serve \
   --model-path dots-studio/dots.tts-soar \
-  --config examples/configs/dots_tts_soar.yaml \
+  --preprocessing.factory.num_steps 10 \
+  --preprocessing.factory.max_generate_length 500 \
+  --latent_engine.factory.num_steps 10 \
+  --latent_engine.factory.max_generate_length 500 \
+  --latent_engine.factory.optimize true \
+  --latent_engine.engine.mem_fraction_static 0.20 \
+  --latent_engine.engine.max_running_requests 1 \
+  --latent_engine.engine.disable_cuda_graph false \
+  --latent_engine.engine.cuda_graph_max_bs 1 \
+  --vocoder.factory.optimize true \
   --allowed-local-media-path docs/_static/audio \
   --port 8000
 ```
 
-SOAR is a flow-matching checkpoint. It runs the single-request solver with classifier-free guidance, so its config pins `max_running_requests: 1` and `num_steps: 10`; continuous batching is MeanFlow-only. Every request example below works on either checkpoint — only the `model` field changes.
+SOAR is a flow-matching checkpoint. It runs the single-request solver with classifier-free guidance, so its recipe pins `max_running_requests 1` and `num_steps 10`; continuous batching is MeanFlow-only. Every request example below works on either checkpoint — only the `model` field changes.
 
-`examples/configs/dots_tts.yaml` is the canonical MeanFlow deployment. It is already tuned; compiled acoustic tail and vocoder (`optimize: true`, on by default); continuous batching at `max_running_requests=16`; and the backbone decode CUDA graph. `--model-path` alone keeps the compiled tail and batching but leaves backbone decode eager, which is slower per request (see [Performance](#performance)). Use the config file.
+The MeanFlow recipe above is the canonical deployment. It is already tuned; compiled acoustic tail and vocoder (`optimize: true`, on by default); continuous batching at `max_running_requests=16`; and the backbone decode CUDA graph. `--model-path` alone keeps the compiled tail and batching but leaves backbone decode eager, which is slower per request (see [Performance](#performance)). Use the recipe.
+
+The solver settings (`num_steps`, `max_generate_length`) feed two consumers: the latent AR engine solves with them, and preprocessing sizes its generation schedule from them, so the recipe writes each value on both `preprocessing` and `latent_engine`. To change the schedule, edit both values in the command; appending a second `--latent_engine.factory.num_steps` with a different value is refused as a conflict rather than overriding the first. To keep a recipe as a file, save it once with `sgl-omni config resolve <the same arguments> --show config > dots_tts.yaml` and launch with `--config dots_tts.yaml`; the file keeps the checkpoint pin.
 
 If startup fails with `dots.tts acoustic-tail admission failed at startup`, the GPU cannot hold `max_running_requests × max_generate_length` full-length acoustic pools — lower those knobs yourself. The engine never silently shrinks them.
 
@@ -70,7 +95,7 @@ dit_cache_tokens = patch_capacity × (hidden_patch_size + latent_patch_size)   #
 
 Pool bytes scale roughly as `max_running_requests × patch_capacity` and include DiT KV (per NFE), semantic-encoder KV, scratch K/V, masks, window, and AdaLN mods. Startup logs the estimated breakdown and free CUDA memory, then refuses to allocate when free VRAM is below the estimate plus a 15% headroom for graphs and workspace.
 
-`mem_fraction_static` (default `0.20` in `examples/configs/dots_tts.yaml`) only budgets the **SGLang backbone** KV cache. Acoustic-tail pools are separate and are **not** covered by that fraction.
+`mem_fraction_static` (`0.20` in the MeanFlow recipe) only budgets the **SGLang backbone** KV cache. Acoustic-tail pools are separate and are **not** covered by that fraction.
 
 | Knob | Effect on pool size |
 |---|---|
@@ -212,7 +237,7 @@ A rejected solver value comes back as HTTP 500 with the engine's message, for ex
 
 ### Performance
 
-Seed-TTS EN benchmark at main commit `2b45073c`, seed 42, with 10 warmup requests. Throughput and latency were measured on **1x H100**. The server used `examples/configs/dots_tts.yaml`, which enables the optimized acoustic tail, vocoder, and backbone CUDA Graph. Every row uses all 1,088 samples.
+Seed-TTS EN benchmark at main commit `2b45073c`, seed 42, with 10 warmup requests. Throughput and latency were measured on **1x H100**. The server used the MeanFlow recipe above, which enables the optimized acoustic tail, vocoder, and backbone CUDA Graph. Every row uses all 1,088 samples.
 
 | Concurrency | Throughput (req/s) | Mean latency | RTF (per-req) | audio_s/s | WER |
 |---:|---:|---:|---:|---:|---:|

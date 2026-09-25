@@ -30,20 +30,43 @@
     },
   };
 
+  // Per-stage GPU memory budgets for a single-GPU colocated launch, as
+  // dotted flags. Values are the calibrated fractions of the device memory.
+  function colocatedBudgetFlags(name, budgets) {
+    return [
+      '--name ' + name,
+      '--image_encoder.gpu_memory_fraction ' + budgets.image_encoder,
+      '--audio_encoder.gpu_memory_fraction ' + budgets.audio_encoder,
+      '--thinker.gpu_memory_fraction ' + budgets.thinker,
+      '--talker_ar.gpu_memory_fraction ' + budgets.talker_ar,
+      '--code2wav.gpu_memory_fraction ' + budgets.code2wav,
+    ];
+  }
+
   // Hardware is a sub-dimension of colocated topology (BF16 only).
-  // Each entry maps to a YAML memory budget profile calibrated for that GPU.
+  // Each entry carries the memory budget profile calibrated for that GPU.
   var HARDWARE = {
     'h20': {
       label:       'H20',
       subtitle:    '≥ 96 GB',
-      config_bf16: 'examples/configs/qwen3_omni_colocated_h20.yaml',
+      flags_bf16:  colocatedBudgetFlags('qwen3-omni-colocated-h20', {
+        image_encoder: 0.025, audio_encoder: 0.025, thinker: 0.75, talker_ar: 0.12, code2wav: 0.02,
+      }),
     },
     'h200': {
       label:       'H200',
       subtitle:    '≥ 141 GB',
-      config_bf16: 'examples/configs/qwen3_omni_colocated_h200.yaml',
+      flags_bf16:  colocatedBudgetFlags('qwen3-omni-colocated-h200', {
+        image_encoder: 0.017, audio_encoder: 0.017, thinker: 0.769, talker_ar: 0.123, code2wav: 0.014,
+      }),
     },
   };
+
+  // Colocated FP8 uses the native FP8 checkpoint with its own budget profile
+  // (H100 / H20), so the hardware dimension does not apply to it.
+  var FP8_COLOCATED_FLAGS = colocatedBudgetFlags('qwen3-omni-fp8-colocated', {
+    image_encoder: 0.025, audio_encoder: 0.025, thinker: 0.75, talker_ar: 0.12, code2wav: 0.02,
+  });
 
   var TOPOLOGIES = {
     'disaggregated': {
@@ -57,10 +80,9 @@
       subtitle: 'single high-VRAM GPU',
       gpus:     function()    { return '1 GPU (H20 / H200)'; },
       contribute: function(ctx)  {
-        return {
-          flags:  ['--colocate'],
-          config: HARDWARE[ctx.hw].config_bf16,
-        };
+        var flags = ['--variant speech-colocated'];
+        if (ctx.prec !== 'fp8') flags = flags.concat(HARDWARE[ctx.hw].flags_bf16);
+        return { flags: flags };
       },
     },
   };
@@ -87,7 +109,7 @@
   // Precision: BF16 is the default (no extra args).
   // FP8 always uses the native FP8 checkpoint — quantization is inferred automatically
   // by the thinker/talker workers from the checkpoint config, so no server-side flag needed.
-  // Colocated FP8 additionally switches to a dedicated YAML for the memory budget.
+  // Colocated FP8 additionally carries its own memory budget profile.
   // INT4 uses the AutoRound checkpoint. For speech, the thinker is INT4 while
   // talker/code2wav load as BF16 from the same checkpoint.
   var PRECISIONS = {
@@ -102,7 +124,7 @@
       contribute: function(ctx) {
         if (ctx.mode === 'speech' && ctx.topo === 'colocated') {
           return {
-            config:    'examples/configs/qwen3_omni_fp8_colocated.yaml',
+            flags:     FP8_COLOCATED_FLAGS,
             modelPath: 'marksverdhei/Qwen3-Omni-30B-A3B-FP8',
           };
         }
@@ -126,12 +148,12 @@
       items.push({ flag: '--text-only', desc: 'Thinker-only pipeline — no talker, no audio output' });
     } else {
       if (ctx.topo === 'colocated') {
-        items.push({ flag: '--colocate', desc: 'All GPU stages share a single high-VRAM GPU' });
+        items.push({ flag: '--variant speech-colocated', desc: 'All GPU stages share a single high-VRAM GPU' });
         if (ctx.prec === 'fp8') {
-          items.push({ flag: '--config …fp8_colocated.yaml', desc: 'FP8 memory budget profile; sets model path to marksverdhei/Qwen3-Omni-30B-A3B-FP8' });
+          items.push({ flag: '--<stage>.gpu_memory_fraction …', desc: 'FP8 memory budget profile for the marksverdhei/Qwen3-Omni-30B-A3B-FP8 checkpoint' });
         } else {
           var hwDef = HARDWARE[ctx.hw];
-          items.push({ flag: '--config …colocated_' + ctx.hw + '.yaml', desc: 'Memory budget profile calibrated for ' + hwDef.label + ' (' + hwDef.subtitle + ')' });
+          items.push({ flag: '--<stage>.gpu_memory_fraction …', desc: 'Memory budget profile calibrated for ' + hwDef.label + ' (' + hwDef.subtitle + ')' });
         }
       } else if (ctx.tp === 'tp2') {
         items.push({ flag: '--thinker.tp_size 2', desc: 'Tensor-parallel the thinker across 2 GPUs' });
@@ -156,8 +178,8 @@
   }
 
   // ─── Recommended hardware ─────────────────────────────────────────────────
-  // Only colocated BF16 has an explicit hardware calibration profile in the repo
-  // (qwen3_omni_colocated_h20.yaml: "single-H20 calibration profile").
+  // Only colocated BF16 has an explicit hardware calibration profile
+  // (the H20 / H200 budget flags above).
   // All other combinations return null — GPU count badge already conveys
   // the key constraint; guessing GPU models would be misleading.
   function getHardware(ctx) {
@@ -180,14 +202,12 @@
     var pc = precDef.contribute(ctx);
 
     var prefix     = tc.prefix || mc.prefix || '';
-    var flags      = (mc.flags || []).concat(tc.flags || []);
-    var configFile = pc.config || tc.config || mc.config || null;
+    var flags      = (mc.flags || []).concat(tc.flags || [], pc.flags || []);
     var modelPath  = pc.modelPath || 'Qwen/Qwen3-Omni-30B-A3B-Instruct';
     var extraArgs  = pc.extraArgs || [];
 
     var parts = ['--model-path ' + modelPath];
     for (var i = 0; i < flags.length; i++) parts.push(flags[i]);
-    if (configFile) parts.push('--config ' + configFile);
     parts.push('--port 8008');
     for (var k = 0; k < extraArgs.length; k++) parts.push(extraArgs[k]);
 
@@ -409,8 +429,18 @@
     update();
   }
 
-  document.addEventListener('DOMContentLoaded', function () {
-    var mount = document.getElementById('sgl-server-gen-mount');
-    if (mount) render(mount);
-  });
+  if (typeof document !== 'undefined') {
+    document.addEventListener('DOMContentLoaded', function () {
+      var mount = document.getElementById('sgl-server-gen-mount');
+      if (mount) render(mount);
+    });
+  }
+  // Node entry point for the docs test that parses every generated command
+  // with the real CLI; browsers have no module object and skip this.
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+      buildCommand: buildCommand,
+      dimensions: { MODES: MODES, TOPOLOGIES: TOPOLOGIES, PRECISIONS: PRECISIONS, THINKER_TP: THINKER_TP, HARDWARE: HARDWARE },
+    };
+  }
 }());
