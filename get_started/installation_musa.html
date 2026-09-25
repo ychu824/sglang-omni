@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>🚀 Installation &#8212; SGLang</title>
+    <title>🚀 Installation — MUSA &#8212; SGLang</title>
   
   
   
@@ -49,15 +49,15 @@
     <script src="../_static/copybutton.js?v=ccdb6887"></script>
     <script src="../_static/scripts/sphinx-book-theme.js?v=fab101a9"></script>
     <script crossorigin="anonymous" integrity="sha256-Ae2Vz/4ePdIu6ZyI/5ZGsYnb+m0JlOmKPjt6XZ9JJkA=" src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.4/require.min.js"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'get_started/installation';</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'get_started/installation_musa';</script>
     <script>DOCUMENTATION_OPTIONS.search_as_you_type = false;</script>
     <script src="../_static/js/qwen3_omni_server_generator.js?v=d7738e8a"></script>
     <script src="../_static/js/ming_omni_server_generator.js?v=7979a72f"></script>
     <link rel="icon" href="../_static/logo.ico"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="🚀 Installation — Ascend NPU" href="installation_npu.html" />
-    <link rel="prev" title="SGLang-Omni" href="../index.html" />
+    <link rel="next" title="Higgs TTS" href="../cookbook/higgs_tts.html" />
+    <link rel="prev" title="🚀 Installation — Intel CPU" href="installation_cpu.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="0.1.6" />
@@ -206,11 +206,11 @@
     <div class="bd-toc-item navbar-nav active">
         <p aria-level="2" class="caption" role="heading"><span class="caption-text">Get Started</span></p>
 <ul class="current nav bd-sidenav">
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">🚀 Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">🚀 Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="installation_npu.html">🚀 Installation — Ascend NPU</a></li>
 <li class="toctree-l1"><a class="reference internal" href="installation_xpu.html">🚀 Installation — Intel XPU</a></li>
 <li class="toctree-l1"><a class="reference internal" href="installation_cpu.html">🚀 Installation — Intel CPU</a></li>
-<li class="toctree-l1"><a class="reference internal" href="installation_musa.html">🚀 Installation — MUSA</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">🚀 Installation — MUSA</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">Cookbook</span></p>
 <ul class="nav bd-sidenav">
@@ -341,7 +341,7 @@
       
       
       
-      <li><a href="https://github.com/sgl-project/sglang-omni/blob/main/docs/get_started/installation.md?plain=1" target="_blank"
+      <li><a href="https://github.com/sgl-project/sglang-omni/blob/main/docs/get_started/installation_musa.md?plain=1" target="_blank"
    class="btn btn-sm btn-source-file-button dropdown-item"
    title="Show source"
    data-bs-placement="left" data-bs-toggle="tooltip"
@@ -358,7 +358,7 @@
       
       
       
-      <li><a href="https://github.com/sgl-project/sglang-omni/edit/main/docs/get_started/installation.md" target="_blank"
+      <li><a href="https://github.com/sgl-project/sglang-omni/edit/main/docs/get_started/installation_musa.md" target="_blank"
    class="btn btn-sm btn-source-edit-button dropdown-item"
    title="Suggest edit"
    data-bs-placement="left" data-bs-toggle="tooltip"
@@ -375,7 +375,7 @@
       
       
       
-      <li><a href="https://github.com/sgl-project/sglang-omni/issues/new?title=Issue%20on%20page%20%2Fget_started/installation.html&body=Your%20issue%20content%20here." target="_blank"
+      <li><a href="https://github.com/sgl-project/sglang-omni/issues/new?title=Issue%20on%20page%20%2Fget_started/installation_musa.html&body=Your%20issue%20content%20here." target="_blank"
    class="btn btn-sm btn-source-issues-button dropdown-item"
    title="Open an issue"
    data-bs-placement="left" data-bs-toggle="tooltip"
@@ -405,7 +405,7 @@
       
       
       
-      <li><a href="../_sources/get_started/installation.md" target="_blank"
+      <li><a href="../_sources/get_started/installation_musa.md" target="_blank"
    class="btn btn-sm btn-download-source-button dropdown-item"
    title="Download source file"
    data-bs-placement="left" data-bs-toggle="tooltip"
@@ -488,7 +488,7 @@
               
 
 <div id="jb-print-docs-body" class="onlyprint">
-    <h1>🚀 Installation</h1>
+    <h1>🚀 Installation — MUSA</h1>
     <!-- Table of contents -->
     <div id="print-main-content">
         <div id="jb-print-toc">
@@ -498,15 +498,10 @@
             </div>
             <nav aria-label="Page">
                 <ul class="pst-show_toc_level nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#option-a-docker-recommended">🐳 Option A: Docker (recommended)</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#option-b-macos-apple-silicon-installer">🍎 Option B: macOS Apple Silicon installer</a><ul class="pst-show_toc_level nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#run-from-a-hosted-installer">Run from a hosted installer</a></li>
-</ul>
-</li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#option-c-manual-install">🛠️ Option C: Manual install</a><ul class="pst-show_toc_level nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#install-from-source">Install from source</a></li>
-</ul>
-</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#prerequisites">Prerequisites</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#option-a-docker">🐳 Option A: Docker</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#option-b-install-from-source">🛠️ Option B: Install from Source</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#verify">Verify</a></li>
 </ul>
             </nav>
         </div>
@@ -518,150 +513,137 @@
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section class="tex2jax_ignore mathjax_ignore" id="installation">
-<h1>🚀 Installation<a class="headerlink" href="#installation" title="Link to this heading">#</a></h1>
-<p>Current stable release: <strong>v0.1.6</strong> on <a class="reference external" href="https://pypi.org/project/sglang-omni/">PyPI</a>.</p>
-<p>Choose the path for your platform. Docker is recommended for NVIDIA CUDA —
-UCX, flash-attn, SGLang, and CUDA are prebuilt. Apple Silicon has a dedicated
-source installer below.</p>
-<blockquote>
-<div><p><strong>Intel GPU (XPU)?</strong> For Intel Arc GPUs, see <a class="reference internal" href="installation_xpu.html"><span class="std std-doc">Installation — Intel XPU</span></a>, which uses <a class="reference download internal" download="" href="../_downloads/e6282636738987ea324fd398b24bcb06/pyproject_xpu.toml"><span class="xref download myst"><code class="docutils literal notranslate"><span class="pre">pyproject_xpu.toml</span></code></span></a> + the PyTorch XPU wheel index instead of the CUDA-only pins below.</p>
-</div></blockquote>
-<blockquote>
-<div><p><strong>Moore Threads GPU (MUSA):</strong> For MUSA, see <a class="reference internal" href="installation_musa.html"><span class="std std-doc">Installation — MUSA</span></a>, which uses <a class="reference download internal" download="" href="../_downloads/57c0a54e0307c48512847391e560970d/pyproject_musa.toml"><span class="xref download myst"><code class="docutils literal notranslate"><span class="pre">pyproject_musa.toml</span></code></span></a> on top of a SGLang MUSA environment.</p>
-</div></blockquote>
-<blockquote>
-<div><p><strong>Intel CPU?</strong> Also not this page. See <a class="reference internal" href="installation_cpu.html"><span class="std std-doc">Installation — Intel CPU</span></a>, which uses <a class="reference download internal" download="" href="../_downloads/959ec2b004cde39ac406608c01e9684b/pyproject_cpu.toml"><span class="xref download myst"><code class="docutils literal notranslate"><span class="pre">pyproject_cpu.toml</span></code></span></a> + the PyTorch CPU wheel index.</p>
-</div></blockquote>
-<blockquote>
-<div><p><strong>Ascend NPU?</strong> See <a class="reference internal" href="installation_npu.html"><span class="std std-doc">Installation — Ascend NPU</span></a> for the supported software stack, prerequisites, and installation helper.</p>
-</div></blockquote>
-<section id="option-a-docker-recommended">
-<h2>🐳 Option A: Docker (recommended)<a class="headerlink" href="#option-a-docker-recommended" title="Link to this heading">#</a></h2>
-<p><strong>1. Pull the image</strong></p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>pull<span class="w"> </span>hongccc/sglang-omni:dev
-</pre></div>
-</div>
-<p>Only the <code class="docutils literal notranslate"><span class="pre">dev</span></code> tag is published today. It moves with main — pin by digest for reproducible runs:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>pull<span class="w"> </span>lmsysorg/sglang-omni@sha256:&lt;digest&gt;
-</pre></div>
-</div>
-<p><strong>2. Run the container</strong></p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>run<span class="w"> </span>-it<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--shm-size<span class="w"> </span>32g<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--gpus<span class="w"> </span>all<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--ipc<span class="w"> </span>host<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--network<span class="w"> </span>host<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--privileged<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>hongccc/sglang-omni:dev<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>/bin/zsh
-</pre></div>
-</div>
-<p><strong>3. Install <code class="docutils literal notranslate"><span class="pre">sglang-omni</span></code> inside the container</strong></p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>--upgrade<span class="w"> </span>pip
-pip<span class="w"> </span>install<span class="w"> </span>uv
-
-uv<span class="w"> </span>venv<span class="w"> </span>.venv<span class="w"> </span>-p<span class="w"> </span><span class="m">3</span>.12
-<span class="nb">source</span><span class="w"> </span>.venv/bin/activate
-
-uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--prerelease<span class="o">=</span>allow<span class="w"> </span><span class="s2">"sglang-omni==0.1.6"</span>
-</pre></div>
-</div>
-<p><a id="macos-apple-silicon"></a></p>
+  <section class="tex2jax_ignore mathjax_ignore" id="installation-musa">
+<h1>🚀 Installation — MUSA<a class="headerlink" href="#installation-musa" title="Link to this heading">#</a></h1>
+<p>This document describes how to install SGLang-Omni on Moore Threads GPUs.</p>
+<p>SGLang owns the base MUSA runtime environment. Install or build SGLang’s MUSA
+environment first, then install SGLang-Omni as an overlay.</p>
+<section id="prerequisites">
+<h2>Prerequisites<a class="headerlink" href="#prerequisites" title="Link to this heading">#</a></h2>
+<p>Install the Moore Threads driver and MUSA runtime on the host first. For the
+base SGLang environment, follow the SGLang Moore Threads GPU installation guide.</p>
 </section>
-<section id="option-b-macos-apple-silicon-installer">
-<h2>🍎 Option B: macOS Apple Silicon installer<a class="headerlink" href="#option-b-macos-apple-silicon-installer" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/sgl-project/sglang-omni.git<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">cd</span><span class="w"> </span>sglang-omni
-./install.sh
-<span class="nb">source</span><span class="w"> </span>.venv-apple/bin/activate
+<section id="option-a-docker">
+<h2>🐳 Option A: Docker<a class="headerlink" href="#option-a-docker" title="Link to this heading">#</a></h2>
+<p>Clone SGLang-Omni first. The installation below is pinned to SGLang <code class="docutils literal notranslate"><span class="pre">v0.5.20</span></code>.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/sgl-project/sglang-omni.git<span class="w"> </span>sglang-omni
+<span class="nv">omni_root</span><span class="o">=</span><span class="s2">"</span><span class="k">$(</span><span class="nb">cd</span><span class="w"> </span>sglang-omni<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">pwd</span><span class="k">)</span><span class="s2">"</span>
+git<span class="w"> </span>clone<span class="w"> </span>--branch<span class="w"> </span>v0.5.20<span class="w"> </span>--single-branch<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>https://github.com/sgl-project/sglang.git<span class="w"> </span><span class="s2">"</span><span class="si">${</span><span class="nv">omni_root</span><span class="si">}</span><span class="s2">/../sglang"</span>
+<span class="nb">cd</span><span class="w"> </span><span class="s2">"</span><span class="si">${</span><span class="nv">omni_root</span><span class="si">}</span><span class="s2">/../sglang"</span>
+docker<span class="w"> </span>build<span class="w"> </span>-f<span class="w"> </span>docker/musa.Dockerfile<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-t<span class="w"> </span>sglang:v0.5.20-musa520-s5000<span class="w"> </span>.
+<span class="nb">cd</span><span class="w"> </span><span class="s2">"</span><span class="si">${</span><span class="nv">omni_root</span><span class="si">}</span><span class="s2">"</span>
+docker<span class="w"> </span>build<span class="w"> </span>-f<span class="w"> </span>docker/musa.Dockerfile<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--build-arg<span class="w"> </span><span class="nv">SGLANG_MUSA_IMAGE</span><span class="o">=</span>sglang:v0.5.20-musa520-s5000<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-t<span class="w"> </span>sglang-omni:main-musa520-s5000<span class="w"> </span>.
 </pre></div>
 </div>
-<p>The script is idempotent and creates (or reuses) <code class="docutils literal notranslate"><span class="pre">.venv-apple</span></code>, installs the
-Homebrew formulae <code class="docutils literal notranslate"><span class="pre">ffmpeg&#64;7</span></code> and <code class="docutils literal notranslate"><span class="pre">uv</span></code> (and <code class="docutils literal notranslate"><span class="pre">git</span></code> only when a working git is not
-already available), installs SGLang <code class="docutils literal notranslate"><span class="pre">v0.5.20</span></code> from source with its <code class="docutils literal notranslate"><span class="pre">all_mps</span></code>
-extra, and installs this checkout with <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">pip</span></code>. SGLang’s optional Rust
-extensions are not needed by this Apple Silicon path and are skipped.
-<code class="docutils literal notranslate"><span class="pre">ffmpeg&#64;7</span></code> is intentional: <code class="docutils literal notranslate"><span class="pre">torchcodec==0.15.0</span></code> ships loaders for FFmpeg 4 through 8
-only, and the unversioned formula installs FFmpeg 9. At runtime, expose its libraries:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">DYLD_LIBRARY_PATH</span><span class="o">=</span><span class="s2">"</span><span class="k">$(</span>brew<span class="w"> </span>--prefix<span class="w"> </span>ffmpeg@7<span class="k">)</span><span class="s2">/lib</span><span class="si">${</span><span class="nv">DYLD_LIBRARY_PATH</span><span class="p">:+:</span><span class="nv">$DYLD_LIBRARY_PATH</span><span class="si">}</span><span class="s2">"</span>
+<p>The base image is built from the immutable <code class="docutils literal notranslate"><span class="pre">v0.5.20</span></code> release tag, which
+includes <code class="docutils literal notranslate"><span class="pre">docker/musa.Dockerfile</span></code>.</p>
+<p>Run the image with MUSA devices exposed by the host runtime. If <code class="docutils literal notranslate"><span class="pre">mthreads</span></code> is
+already configured as the Docker default runtime on your host, omit
+<code class="docutils literal notranslate"><span class="pre">--runtime=mthreads</span></code>.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>run<span class="w"> </span>-it<span class="w"> </span>--rm<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--runtime<span class="o">=</span>mthreads<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--env<span class="w"> </span><span class="nv">MTHREADS_VISIBLE_DEVICES</span><span class="o">=</span><span class="m">0</span>,1,2,3,4,5,6,7<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--env<span class="w"> </span><span class="nv">MTHREADS_DRIVER_CAPABILITIES</span><span class="o">=</span>all<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--env<span class="w"> </span><span class="nv">HF_HOME</span><span class="o">=</span>/cache/huggingface<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-v<span class="w"> </span>~/.cache/huggingface:/cache/huggingface<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--shm-size<span class="o">=</span>32g<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-p<span class="w"> </span><span class="m">8000</span>:8000<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>sglang-omni:main-musa520-s5000
 </pre></div>
 </div>
-<p>Homebrew must be installed before running the script. If <code class="docutils literal notranslate"><span class="pre">brew</span></code> is missing, the
-script prints an error and exits; install it yourself from
-<a class="reference external" href="https://brew.sh">brew.sh</a>, then rerun. The installer never invokes <code class="docutils literal notranslate"><span class="pre">sudo</span></code> or
-Homebrew’s bootstrapper. Use <code class="docutils literal notranslate"><span class="pre">--non-interactive</span></code> (or <code class="docutils literal notranslate"><span class="pre">NONINTERACTIVE=1</span></code>) to
-disable Homebrew auto-update in CI, <code class="docutils literal notranslate"><span class="pre">SGLANG_OMNI_VENV=/path/to/venv</span></code> to choose a virtualenv, and
-<code class="docutils literal notranslate"><span class="pre">SGLANG_OMNI_EXTRAS=audar-tts,fun-cosyvoice3</span></code> to enable optional extras.
-The persistent SGLang source checkout defaults to
-<code class="docutils literal notranslate"><span class="pre">~/.cache/sglang-omni/sglang-v0.5.20</span></code> and can be changed with
-<code class="docutils literal notranslate"><span class="pre">SGLANG_SOURCE_DIR</span></code>. Slow or proxied networks can override the installer’s uv
-defaults with <code class="docutils literal notranslate"><span class="pre">UV_HTTP_TIMEOUT</span></code> and <code class="docutils literal notranslate"><span class="pre">UV_HTTP_RETRIES</span></code>.</p>
-<p>This path currently supports macOS 14 or newer on <code class="docutils literal notranslate"><span class="pre">arm64</span></code> only (the pinned
-<code class="docutils literal notranslate"><span class="pre">torch==2.13.0</span></code>, <code class="docutils literal notranslate"><span class="pre">torchvision==0.28.0</span></code> and <code class="docutils literal notranslate"><span class="pre">torchcodec==0.15.0</span></code> wheels are built
-for <code class="docutils literal notranslate"><span class="pre">macosx_14_0_arm64</span></code>) and is intended for the Apple-Silicon Qwen3-ASR
-MLX/Torch-MPS paths. Other platforms should use the
-Docker, manual, or Intel XPU instructions below. Common failures are a missing
-Homebrew/uv on <code class="docutils literal notranslate"><span class="pre">PATH</span></code>, an unavailable Python 3.12 toolchain, or forgetting the
-<code class="docutils literal notranslate"><span class="pre">DYLD_LIBRARY_PATH</span></code> export when starting an audio server.</p>
-<section id="run-from-a-hosted-installer">
-<h3>Run from a hosted installer<a class="headerlink" href="#run-from-a-hosted-installer" title="Link to this heading">#</a></h3>
-<p>The script also supports a downloaded or <code class="docutils literal notranslate"><span class="pre">curl</span> <span class="pre">|</span> <span class="pre">bash</span></code> invocation: when it is
-not inside an sglang-omni checkout, it clones the repository specified by
-<code class="docutils literal notranslate"><span class="pre">SGLANG_OMNI_REPO</span></code> and <code class="docutils literal notranslate"><span class="pre">SGLANG_OMNI_REF</span></code> into the cache and installs that
-checkout. Prefer downloading, reviewing, and then running a pinned script:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-fsSLo<span class="w"> </span>/tmp/sglang-omni-install.sh<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>https://raw.githubusercontent.com/sgl-project/sglang-omni/&lt;commit&gt;/install.sh
-less<span class="w"> </span>/tmp/sglang-omni-install.sh
-chmod<span class="w"> </span>+x<span class="w"> </span>/tmp/sglang-omni-install.sh
-<span class="nv">SGLANG_OMNI_REF</span><span class="o">=</span>&lt;commit&gt;<span class="w"> </span>/tmp/sglang-omni-install.sh
-</pre></div>
-</div>
-<p>Piping a remote script directly to Bash executes code without a review step;
-use it only when that trade-off is acceptable:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-fsSL<span class="w"> </span>https://raw.githubusercontent.com/sgl-project/sglang-omni/&lt;commit&gt;/install.sh<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="p">|</span><span class="w"> </span><span class="nv">SGLANG_OMNI_REF</span><span class="o">=</span>&lt;commit&gt;<span class="w"> </span>bash
-</pre></div>
-</div>
-<p>For a fork or an internal mirror, set <code class="docutils literal notranslate"><span class="pre">SGLANG_OMNI_REPO</span></code> and
-<code class="docutils literal notranslate"><span class="pre">SGLANG_OMNI_REF</span></code> explicitly. The hosted mode stores the project checkout at
-<code class="docutils literal notranslate"><span class="pre">~/.cache/sglang-omni/sglang-omni-&lt;ref&gt;</span></code> by default; override it with
-<code class="docutils literal notranslate"><span class="pre">SGLANG_OMNI_PROJECT_DIR</span></code>.</p>
 </section>
-</section>
-<section id="option-c-manual-install">
-<h2>🛠️ Option C: Manual install<a class="headerlink" href="#option-c-manual-install" title="Link to this heading">#</a></h2>
-<p>Build prerequisites first:</p>
-<ul class="simple">
-<li><p><strong>UCX 1.20.x</strong> with CUDA + verbs — <a class="reference external" href="https://github.com/openucx/ucx">upstream</a>, or reuse flags in <a class="reference download internal" download="" href="../_downloads/9c6d2dd30e172995ff9466799d6f77ed/Dockerfile"><span class="xref download myst"><code class="docutils literal notranslate"><span class="pre">docker/Dockerfile</span></code></span></a>.</p></li>
-<li><p><strong>flash-attn-4</strong> <code class="docutils literal notranslate"><span class="pre">&gt;=4.0.0b18</span></code>, matching <code class="docutils literal notranslate"><span class="pre">torch==2.13.0</span></code> and SGLang 0.5.20’s <code class="docutils literal notranslate"><span class="pre">nvidia-cutlass-dsl</span></code> 4.6.2 pin.</p></li>
-</ul>
-<p>Then:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>--upgrade<span class="w"> </span>pip
-pip<span class="w"> </span>install<span class="w"> </span>uv
-
-uv<span class="w"> </span>venv<span class="w"> </span>.venv<span class="w"> </span>-p<span class="w"> </span><span class="m">3</span>.12
-<span class="nb">source</span><span class="w"> </span>.venv/bin/activate
-
-uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--prerelease<span class="o">=</span>allow<span class="w"> </span><span class="s2">"sglang-omni==0.1.6"</span>
+<section id="option-b-install-from-source">
+<h2>🛠️ Option B: Install from Source<a class="headerlink" href="#option-b-install-from-source" title="Link to this heading">#</a></h2>
+<p>Start from an environment where SGLang <code class="docutils literal notranslate"><span class="pre">v0.5.20</span></code> has been installed with MUSA
+support. If you build SGLang from source, clone the pinned tag rather than
+<code class="docutils literal notranslate"><span class="pre">main</span></code>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>--depth<span class="w"> </span><span class="m">1</span><span class="w"> </span>--branch<span class="w"> </span>v0.5.20<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>https://github.com/sgl-project/sglang.git<span class="w"> </span>sglang
 </pre></div>
 </div>
-<p>Latest on the index without a pin: <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">pip</span> <span class="pre">install</span> <span class="pre">--prerelease=allow</span> <span class="pre">sglang-omni</span></code>.</p>
-<section id="install-from-source">
-<h3>Install from source<a class="headerlink" href="#install-from-source" title="Link to this heading">#</a></h3>
-<p>For development or unreleased changes:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>git@github.com:sgl-project/sglang-omni.git
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/sgl-project/sglang-omni.git
 <span class="nb">cd</span><span class="w"> </span>sglang-omni
+<span class="nv">omni_root</span><span class="o">=</span><span class="s2">"</span><span class="k">$(</span><span class="nb">pwd</span><span class="k">)</span><span class="s2">"</span>
 
-pip<span class="w"> </span>install<span class="w"> </span>--upgrade<span class="w"> </span>pip
-pip<span class="w"> </span>install<span class="w"> </span>uv
+python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--upgrade<span class="w"> </span>pip<span class="w"> </span><span class="s2">"setuptools&lt;82"</span><span class="w"> </span>wheel
+sudo<span class="w"> </span>apt-get<span class="w"> </span>update
+sudo<span class="w"> </span>apt-get<span class="w"> </span>install<span class="w"> </span>-y<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>build-essential<span class="w"> </span>ca-certificates<span class="w"> </span>git<span class="w"> </span>libdav1d-dev<span class="w"> </span>libmp3lame-dev<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>libsndfile1<span class="w"> </span>libsox-dev<span class="w"> </span>libsox-fmt-all<span class="w"> </span>libssl-dev<span class="w"> </span>libx264-dev<span class="w"> </span>nasm<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>pkg-config<span class="w"> </span>pybind11-dev<span class="w"> </span>sox<span class="w"> </span>yasm
 
-uv<span class="w"> </span>venv<span class="w"> </span>.venv<span class="w"> </span>-p<span class="w"> </span><span class="m">3</span>.12
-<span class="nb">source</span><span class="w"> </span>.venv/bin/activate
+<span class="nv">ffmpeg_root</span><span class="o">=</span><span class="s2">"</span><span class="k">$(</span>mktemp<span class="w"> </span>-d<span class="k">)</span><span class="s2">"</span>
+git<span class="w"> </span>clone<span class="w"> </span>--depth<span class="w"> </span><span class="m">1</span><span class="w"> </span>--branch<span class="w"> </span>mt-7.0.2-public<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>https://github.com/MooreThreads/FFmpeg.git<span class="w"> </span><span class="s2">"</span><span class="si">${</span><span class="nv">ffmpeg_root</span><span class="si">}</span><span class="s2">/FFmpeg"</span>
+<span class="nb">cd</span><span class="w"> </span><span class="s2">"</span><span class="si">${</span><span class="nv">ffmpeg_root</span><span class="si">}</span><span class="s2">/FFmpeg"</span>
+mkdir<span class="w"> </span>-p<span class="w"> </span>build
+<span class="nb">cd</span><span class="w"> </span>build
+../configure<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--enable-shared<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--enable-libmp3lame<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--enable-libdav1d<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--enable-openssl<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--enable-libx264<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--enable-gpl<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--enable-nonfree
+make<span class="w"> </span>-j<span class="s2">"</span><span class="k">$(</span>nproc<span class="k">)</span><span class="s2">"</span>
+sudo<span class="w"> </span>make<span class="w"> </span>install
+sudo<span class="w"> </span>ldconfig
+<span class="nb">cd</span><span class="w"> </span><span class="s2">"</span><span class="si">${</span><span class="nv">omni_root</span><span class="si">}</span><span class="s2">"</span>
 
-uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--prerelease<span class="o">=</span>allow<span class="w"> </span>-v<span class="w"> </span>-e<span class="w"> </span>.<span class="w">   </span><span class="c1"># drop -e for a non-editable install</span>
+<span class="o">(</span>
+<span class="w">  </span><span class="nb">set</span><span class="w"> </span>-e
+<span class="w">  </span><span class="nv">pyproject_backup</span><span class="o">=</span><span class="s2">"</span><span class="k">$(</span>mktemp<span class="k">)</span><span class="s2">"</span>
+<span class="w">  </span>cp<span class="w"> </span>pyproject.toml<span class="w"> </span><span class="s2">"</span><span class="si">${</span><span class="nv">pyproject_backup</span><span class="si">}</span><span class="s2">"</span>
+<span class="w">  </span><span class="nb">trap</span><span class="w"> </span><span class="s1">'cp "${pyproject_backup}" pyproject.toml; rm -f "${pyproject_backup}"'</span><span class="w"> </span>EXIT
+
+<span class="w">  </span>cp<span class="w"> </span>pyproject_musa.toml<span class="w"> </span>pyproject.toml
+<span class="w">  </span><span class="nv">TORCH_DEVICE_BACKEND_AUTOLOAD</span><span class="o">=</span><span class="m">0</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="nv">I_CONFIRM_THIS_IS_NOT_A_LICENSE_VIOLATION</span><span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="nv">ENABLE_MUSA</span><span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--no-build-isolation<span class="w"> </span>--no-deps<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span><span class="s2">"torchcodec @ git+https://github.com/MooreThreads/torchcodec.git@release/0.5-musa-public"</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--index-url<span class="w"> </span>https://pypi.org/simple<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--extra-index-url<span class="w"> </span>https://dl.mthreads.com/repo/api/pypi/pypi/simple<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--trusted-host<span class="w"> </span>dl.mthreads.com
+
+<span class="w">  </span>python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span>.<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--index-url<span class="w"> </span>https://dl.mthreads.com/repo/api/pypi/pypi/simple<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--extra-index-url<span class="w"> </span>https://pypi.org/simple<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--trusted-host<span class="w"> </span>dl.mthreads.com
+
+<span class="w">  </span><span class="c1"># qwen-tts pins Transformers 4.57.3 and accelerate 1.12.0, so install it</span>
+<span class="w">  </span><span class="c1"># without dependencies to preserve the inherited MUSA stack.</span>
+<span class="w">  </span>python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--no-cache-dir<span class="w"> </span>--no-deps<span class="w"> </span>qwen-tts<span class="o">==</span><span class="m">0</span>.1.1
+<span class="o">)</span>
 </pre></div>
 </div>
+<p>The subshell restores the original <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code> when installation exits, so
+the source checkout is not left with the MUSA dependency overlay.</p>
+<p>The MUSA pyproject installs only SGLang-Omni overlay dependencies. The base
+MUSA torch stack, SGLang, sgl-kernel, Triton, TileLang, and MATE are inherited
+from the SGLang MUSA environment.</p>
 </section>
+<section id="verify">
+<h2>Verify<a class="headerlink" href="#verify" title="Link to this heading">#</a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-<span class="w"> </span><span class="s">&lt;&lt;'PY'</span>
+<span class="s">import torch</span>
+<span class="s">import torchada  # noqa: F401</span>
+<span class="s">import sglang</span>
+<span class="s">import sglang_omni</span>
+
+<span class="s">print("torch:", torch.__version__)</span>
+<span class="s">print("musa:", torch.version.musa)</span>
+<span class="s">print("devices:", torch.musa.device_count())</span>
+<span class="s">print("sglang:", sglang.__version__)</span>
+<span class="s">print("sglang_omni:", sglang_omni.__file__)</span>
+<span class="s">PY</span>
+</pre></div>
+</div>
 </section>
 </section>
 
@@ -677,20 +659,20 @@ uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </s
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="../index.html"
+       href="installation_cpu.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">SGLang-Omni</p>
+        <p class="prev-next-title">🚀 Installation — Intel CPU</p>
       </div>
     </a>
     <a class="right-next"
-       href="installation_npu.html"
+       href="../cookbook/higgs_tts.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">🚀 Installation — Ascend NPU</p>
+        <p class="prev-next-title">Higgs TTS</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -712,15 +694,10 @@ uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </s
   </div>
   <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="pst-show_toc_level nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#option-a-docker-recommended">🐳 Option A: Docker (recommended)</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#option-b-macos-apple-silicon-installer">🍎 Option B: macOS Apple Silicon installer</a><ul class="pst-show_toc_level nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#run-from-a-hosted-installer">Run from a hosted installer</a></li>
-</ul>
-</li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#option-c-manual-install">🛠️ Option C: Manual install</a><ul class="pst-show_toc_level nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#install-from-source">Install from source</a></li>
-</ul>
-</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#prerequisites">Prerequisites</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#option-a-docker">🐳 Option A: Docker</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#option-b-install-from-source">🛠️ Option B: Install from Source</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#verify">Verify</a></li>
 </ul>
   </nav></div>
 
