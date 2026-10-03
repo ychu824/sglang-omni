@@ -196,7 +196,10 @@ class FunCosyVoice3EngineBuilder(TtsEngineBuilder[CosyVoice3SGLangRequestData]):
             model = None
         else:
             model = model_worker.model_runner.model
-            llm_pt_path = os.path.join(root, "llm.pt")
+            # note (Yucheng Hu): experiment switch; the checkpoint also ships llm.rl.pt.
+            llm_pt_path = os.path.join(
+                root, os.environ.get("SGLANG_OMNI_COSYVOICE3_LLM_CHECKPOINT", "llm.pt")
+            )
             logger.info("Loading CosyVoice3 fine-tuned weights from %s", llm_pt_path)
             state_dict = torch.load(llm_pt_path, map_location="cpu", weights_only=True)
             model.load_weights(list(state_dict.items()))

@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import json
+import os
 from contextlib import AbstractContextManager, nullcontext
 from queue import Queue
 from typing import TYPE_CHECKING
@@ -54,10 +56,46 @@ _COSYVOICE3_RAS_WINDOW_SIZE = 10
 # note (Yucheng Hu): the redraw reusing the first draw's seeded noise would be
 # conditioned on the rejected candidate having won that draw.
 COSYVOICE3_RAS_SEED_SALT = 0x2545F491
+# note (Yucheng Hu): experiment switch. When set to a file path, every finished
+# request appends one JSON line with its tokens and per-step sampler statistics.
+COSYVOICE3_TOKEN_TRACE_ENV = "SGLANG_OMNI_COSYVOICE3_TOKEN_TRACE"
+# note (Yucheng Hu): experiment switch; "off" disables the RAS redraw for A/B runs.
+COSYVOICE3_RAS_ENV = "SGLANG_OMNI_COSYVOICE3_RAS"
+# Upstream's silent/breath ids plus 243 and 27, the ids runaways loop on.
+COSYVOICE3_TRACE_SILENT_TOKEN_IDS = (
+    1,
+    2,
+    27,
+    28,
+    29,
+    55,
+    243,
+    248,
+    494,
+    2241,
+    2242,
+    2322,
+    2323,
+)
+# Columns of a trace step: stop-token mass, silent-id mass, top probability,
+# top id, sampled candidate before RAS, and whether RAS replaced it.
+COSYVOICE3_TRACE_COLUMNS = (
+    "p_stop",
+    "p_silent",
+    "top_prob",
+    "top_id",
+    "candidate",
+    "redrawn",
+)
 
 
 class FunCosyVoice3ModelRunner(ModelRunner):
     """Runs Fun-CosyVoice3 AR steps and collects generated speech tokens."""
+
+    # Off unless COSYVOICE3_TOKEN_TRACE_ENV is set; class defaults keep runners
+    # built without __init__ (tests) on the untraced path.
+    token_trace_path: str | None = None
+    pending_trace_stats: torch.Tensor | None = None
 
     tp_worker: ModelWorker
     model: FunCosyVoice3SGLangModel
@@ -80,6 +118,10 @@ class FunCosyVoice3ModelRunner(ModelRunner):
         self.outbox: Queue[OutgoingMessage] | None = None
         self.vocoder_target = "vocoder"
         self.cosyvoice3_recent_tokens: dict[str, list[int]] = {}
+        self.token_trace_path = os.environ.get(COSYVOICE3_TOKEN_TRACE_ENV)
+        self.token_traces: dict[str, dict[str, list[object]]] = {}
+        self.pending_trace_stats: torch.Tensor | None = None
+        self.trace_silent_ids: torch.Tensor | None = None
 
     def set_stream_outbox(self, outbox: Queue[OutgoingMessage]) -> None:
         self.outbox = outbox
@@ -255,7 +297,35 @@ class FunCosyVoice3ModelRunner(ModelRunner):
         onto the repeated token.
         """
         sampling_info = forward_batch.sampling_info
-        if sampling_info.is_all_greedy or not forward_batch.forward_mode.is_decode():
+        trace_stats = None
+        if self.token_trace_path is not None and not sampling_info.is_all_greedy:
+            trace_probs = logits_output.next_token_logits
+            if self.trace_silent_ids is None:
+                self.trace_silent_ids = torch.tensor(
+                    COSYVOICE3_TRACE_SILENT_TOKEN_IDS, device=trace_probs.device
+                )
+            else:
+                pass
+            top_prob, top_id = trace_probs.max(dim=1)
+            trace_stats = torch.stack(
+                [
+                    trace_probs[:, VOCAB_SIZE:].sum(dim=1),
+                    trace_probs[:, self.trace_silent_ids].sum(dim=1),
+                    top_prob,
+                    top_id,
+                    next_token_ids,
+                    torch.zeros_like(top_prob),
+                ],
+                dim=1,
+            ).float()
+        else:
+            pass
+        self.pending_trace_stats = trace_stats
+        if (
+            sampling_info.is_all_greedy
+            or not forward_batch.forward_mode.is_decode()
+            or os.environ.get(COSYVOICE3_RAS_ENV) == "off"
+        ):
             return next_token_ids
         else:
             pass
@@ -295,6 +365,10 @@ class FunCosyVoice3ModelRunner(ModelRunner):
             redraw_probs, redraw_seeds, forward_batch.positions
         )
         next_token_ids = torch.where(is_repeated, redraw_ids, next_token_ids)
+        if trace_stats is not None:
+            trace_stats[:, 5] = is_repeated.float()
+        else:
+            pass
         if logits_output.next_token_logprobs is not None:
             emitted_logprobs = torch.log(
                 probs.gather(1, next_token_ids.long().unsqueeze(1)).squeeze(1)
@@ -401,6 +475,25 @@ class FunCosyVoice3ModelRunner(ModelRunner):
             recent_tokens.pop(str(request_id), None)
         else:
             pass
+        trace = (
+            self.token_traces.pop(str(request_id), None)
+            if self.token_trace_path is not None
+            else None
+        )
+        if trace is not None and req_data is not None:
+            sampling_params = req_data.req.sampling_params
+            record = {
+                "request_id": str(request_id),
+                "columns": COSYVOICE3_TRACE_COLUMNS,
+                "min_new_tokens": sampling_params.min_new_tokens,
+                "max_new_tokens": sampling_params.max_new_tokens,
+                "sampling_seed": sampling_params.sampling_seed,
+                **trace,
+            }
+            with open(self.token_trace_path, "a") as trace_file:
+                trace_file.write(json.dumps(record) + "\n")
+        else:
+            pass
 
     def collect_tokens(
         self,
@@ -420,8 +513,22 @@ class FunCosyVoice3ModelRunner(ModelRunner):
             pass
         # note (guozhihao-224): one batched D2H instead of per-request .item() syncs.
         token_ids_cpu = token_ids.tolist()
+        trace_rows = (
+            self.pending_trace_stats.tolist()
+            if self.pending_trace_stats is not None
+            else None
+        )
+        self.pending_trace_stats = None
         for idx, sched_req in enumerate(requests):
             token_id = int(token_ids_cpu[idx])
+            if self.token_trace_path is not None:
+                trace = self.token_traces.setdefault(
+                    str(sched_req.request_id), {"tokens": [], "steps": []}
+                )
+                trace["tokens"].append(token_id)
+                trace["steps"].append(trace_rows[idx] if trace_rows else None)
+            else:
+                pass
             if token_id >= VOCAB_SIZE:
                 continue
             else:
