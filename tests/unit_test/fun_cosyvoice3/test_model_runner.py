@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+from array import array
 from types import SimpleNamespace
 
 import pytest
@@ -270,6 +272,73 @@ def test_cosyvoice3_torch_mps_clears_ras_history_on_finish() -> None:
     runner.on_request_finished("req", None)
 
     assert runner.cosyvoice3_recent_tokens == {"keep": [2]}
+
+
+def test_cosyvoice3_ras_redraws_repeated_speech_token_from_full_distribution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Rows: a repeated speech token, a new speech token, a greedy request, and
+    # a control token.
+    probs = torch.zeros((4, EOS_ID + 1))
+    probs[0, 9], probs[0, EOS_ID] = 0.9, 0.1
+    probs[1:, 2] = 0.4
+    probs[1, 5] = probs[2, 9] = probs[3, EOS_ID] = 0.6
+    candidate_ids = torch.tensor([9, 5, 9, EOS_ID], dtype=torch.int32)
+    redraw_probs = []
+
+    def sample(logits_output, forward_batch):
+        logits_output.next_token_logprobs = torch.log(
+            probs.gather(1, candidate_ids.long().unsqueeze(1)).squeeze(1)
+        )
+        return candidate_ids
+
+    def take_most_likely(probs, sampling_seed, positions):
+        redraw_probs.append(probs)
+        return probs.argmax(dim=1).to(torch.int32)
+
+    monkeypatch.setattr(
+        model_runner_module, "sampling_from_probs_torch", take_most_likely
+    )
+    runner = object.__new__(FunCosyVoice3ModelRunner)
+    runner.tp_worker = SimpleNamespace(model_runner=SimpleNamespace(sample=sample))
+    requests = [
+        SimpleNamespace(
+            data=SimpleNamespace(
+                return_logprob=row == 0,
+                output_token_logprobs=[],
+                suppress_tokens=None,
+                req=SimpleNamespace(
+                    output_ids=array("q", output_ids),
+                    sampling_params=SimpleNamespace(sampling_seed=None),
+                ),
+            )
+        )
+        for row, output_ids in enumerate([[4, 9, 7], [1, 2, 3], [9], [EOS_ID]])
+    ]
+    forward_batch = SimpleNamespace(
+        sampling_info=SimpleNamespace(
+            is_all_greedy=False,
+            sampling_seed=None,
+            top_ks=torch.tensor([20, 20, 1, 20]),
+        ),
+        forward_mode=SimpleNamespace(is_decode=lambda: True),
+        positions=torch.arange(4),
+        return_logprob=False,
+        top_logprobs_nums=None,
+        token_ids_logprobs=None,
+    )
+    logits_output = SimpleNamespace(next_token_logits=probs, next_token_logprobs=None)
+
+    token_ids = runner.sample_next_token_ids(
+        logits_output, forward_batch, None, requests
+    )
+
+    assert token_ids.tolist() == [EOS_ID, 5, 9, EOS_ID]
+    assert requests[0].data.output_token_logprobs == [
+        [pytest.approx(math.log(0.1)), EOS_ID]
+    ]
+    assert redraw_probs[0][0, 9].item() == 0.0
+    assert redraw_probs[0][0, EOS_ID].item() == pytest.approx(0.1)
 
 
 def test_cosyvoice3_load_weights_maps_custom_and_backbone_keys(

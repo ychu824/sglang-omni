@@ -1009,6 +1009,9 @@ class ModelRunner(Generic[RequestDataInput]):
         next_token_ids = self.tp_worker.model_runner.sample(
             logits_output, forward_batch
         )
+        next_token_ids = self.process_sampled_token_ids(
+            logits_output, forward_batch, next_token_ids, requests
+        )
         if wants_rollout_logprob:
             try:
                 next_token_logprobs = logits_output.next_token_logprobs
@@ -1037,6 +1040,16 @@ class ModelRunner(Generic[RequestDataInput]):
         self, logits_output: LogitsProcessorOutput, requests: list[SchedulerRequest]
     ) -> None:
         pass
+
+    def process_sampled_token_ids(
+        self,
+        logits_output: LogitsProcessorOutput,
+        forward_batch: ForwardBatch,
+        next_token_ids: torch.Tensor,
+        requests: list[SchedulerRequest],
+    ) -> torch.Tensor:
+        """Replace sampled rows; a replaced row must also rewrite its logprob."""
+        return next_token_ids
 
     def install_sampling_seeds(
         self, forward_batch: ForwardBatch, requests: list[SchedulerRequest]
