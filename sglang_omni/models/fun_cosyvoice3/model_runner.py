@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from contextlib import AbstractContextManager, nullcontext
 from queue import Queue
@@ -21,6 +22,8 @@ from sglang_omni.model_runner.mlx_model_worker import MlxSchedulerModelRunner
 from sglang_omni.model_runner.model_worker import ModelWorker
 from sglang_omni.model_runner.sglang_execution import attn_forward_context
 from sglang_omni.models.fun_cosyvoice3.request_builders import (
+    COSYVOICE3_DEEP_SILENT_TOKEN_IDS,
+    COSYVOICE3_FILTERED_SILENT_TOKEN_IDS,
     COSYVOICE3_QUIET_TOKEN_IDS,
     CosyVoice3SGLangRequestData,
     accept_cosyvoice3_stream_token,
@@ -55,6 +58,8 @@ if TYPE_CHECKING:
 
 else:
     pass
+
+logger = logging.getLogger(__name__)
 
 _COSYVOICE3_RAS_WINDOW_SIZE = 10
 # note (Yucheng Hu): experiment switch. When set to a file path, every finished
@@ -137,7 +142,22 @@ class FunCosyVoice3ModelRunner(ModelRunner):
         self.pending_trace_stats: tuple[torch.Tensor, torch.Tensor] | None = None
         self.pending_governor_penalties: list[float] | None = None
         self.ras_mode = os.environ.get(COSYVOICE3_RAS_ENV, "on")
+        if self.ras_mode not in ("on", "off", "conservative"):
+            raise ValueError(f"{COSYVOICE3_RAS_ENV} must be on, off or conservative")
+        else:
+            pass
         self.governor_enabled = os.environ.get(COSYVOICE3_GOVERNOR_ENV) == "on"
+        logger.info(
+            "Fun-CosyVoice3 experiment switches: ras=%s governor=%s silent_filter=%s",
+            self.ras_mode,
+            "on" if self.governor_enabled else "off",
+            (
+                "deep"
+                if COSYVOICE3_FILTERED_SILENT_TOKEN_IDS
+                == COSYVOICE3_DEEP_SILENT_TOKEN_IDS
+                else "upstream"
+            ),
+        )
         self.token_class_masks: tuple[torch.Tensor, torch.Tensor] | None = None
 
     def set_stream_outbox(self, outbox: Queue[OutgoingMessage]) -> None:

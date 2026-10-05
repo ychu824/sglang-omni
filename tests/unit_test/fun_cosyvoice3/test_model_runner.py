@@ -347,8 +347,8 @@ def test_cosyvoice3_ras_redraws_repeated_speech_token_from_full_distribution(
 
 
 def test_cosyvoice3_silence_governor_penalizes_quiet_class_by_phase() -> None:
-    # Rows: silent before speech (over 40), a mid-sentence pause (under 25),
-    # and a pause after the sentence (over 15). n = 10 target text tokens.
+    # Rows: silent before speech (over 40), a pause just after speech started
+    # (over 25), and a pause once 2.5n were voiced (over 15). n = 10.
     runner = object.__new__(FunCosyVoice3ModelRunner)
     runner.governor_enabled = True
     requests = [
@@ -359,14 +359,14 @@ def test_cosyvoice3_silence_governor_penalizes_quiet_class_by_phase() -> None:
                 req=SimpleNamespace(sampling_params=SimpleNamespace(min_new_tokens=20)),
             )
         )
-        for quiet_run, voiced_tokens in [(42, 0), (20, 10), (20, 25)]
+        for quiet_run, voiced_tokens in [(42, 0), (30, 6), (18, 25)]
     ]
     logits = torch.zeros((3, EOS_ID + 1))
 
     runner.process_sampling_logits(SimpleNamespace(next_token_logits=logits), requests)
 
-    assert runner.pending_governor_penalties == [1.0, 0.0, 2.5]
-    assert logits[:, 243].tolist() == [-1.0, 0.0, -2.5]
+    assert runner.pending_governor_penalties == [1.0, 2.5, 1.5]
+    assert logits[:, 243].tolist() == [-1.0, -2.5, -1.5]
     assert logits[:, 13].tolist() == [0.0, 0.0, 0.0]
     assert logits[:, EOS_ID].tolist() == [float("-inf"), 0.0, 0.0]
 
@@ -412,8 +412,8 @@ def test_cosyvoice3_conservative_redraw_masks_quiet_window_then_truncates(
 
     assert token_ids.tolist() == [50, 27, 5, 9]
     assert redrawn.tolist() == [True, True, False, False]
-    assert redraw_probs[0][0, :2].tolist() == pytest.approx([0.6, 0.4])
-    assert redraw_probs[0][1, :2].tolist() == pytest.approx([0.75, 0.0])
+    assert redraw_probs[0][0, :2].tolist() == pytest.approx([0.15, 0.1])
+    assert redraw_probs[0][1, :2].tolist() == pytest.approx([0.3, 0.0])
 
 
 def test_cosyvoice3_load_weights_maps_custom_and_backbone_keys(

@@ -69,9 +69,10 @@ def conservative_repetition_aware_redraw(
     When the repeated candidate belongs to loop_class (a [V] bool mask), every
     loop_class id in the window is masked too, so a loop cannot hop between
     them. Stop tokens (stop_token_mask) are masked for rows whose stop_allowed
-    is False. The masked distribution is truncated to the request's top-k /
-    top-p on [B, max_top_k] instead of being sampled over the whole vocabulary;
-    a row with nothing left keeps its first draw.
+    is False. The request's top-k / top-p are then applied to what remains,
+    with top-p measured against the remaining mass, and the redraw samples
+    [B, max_top_k] instead of the whole vocabulary; a row with nothing left
+    keeps its first draw.
     """
     recent_rows = [list(row_ids[-window_size:]) for row_ids in output_ids]
     host_rows = torch.tensor(
@@ -96,17 +97,17 @@ def conservative_repetition_aware_redraw(
     redraw_probs.masked_fill_(
         stop_token_mask.unsqueeze(0) & ~row_stop_allowed.unsqueeze(1), 0.0
     )
+    remaining = redraw_probs.sum(dim=1, keepdim=True)
     top_probs, top_ids = redraw_probs.topk(min(max_top_k, probs.shape[1]), dim=1)
     ranks = torch.arange(top_probs.shape[1], device=probs.device).unsqueeze(0)
     top_probs.masked_fill_(ranks >= top_ks.unsqueeze(1), 0.0)
-    mass = top_probs.sum(dim=1, keepdim=True)
-    top_probs.div_(mass.clamp_min(torch.finfo(torch.float32).tiny))
     top_probs.masked_fill_(
-        top_probs.cumsum(dim=1) - top_probs > top_ps.unsqueeze(1), 0.0
+        top_probs.cumsum(dim=1) - top_probs > top_ps.unsqueeze(1) * remaining, 0.0
     )
+    has_mass = top_probs.sum(dim=1, keepdim=True) > 0
     # note (Yucheng Hu): multinomial rejects an all-zero row.
-    top_probs = torch.where(mass > 0, top_probs, 1.0)
-    is_repeated &= mass.squeeze(1) > 0
+    top_probs = torch.where(has_mass, top_probs, 1.0)
+    is_repeated &= has_mass.squeeze(1)
     redraw_seeds = None if sampling_seeds is None else sampling_seeds ^ REDRAW_SEED_SALT
     redraw_ranks = sampling_from_probs_torch(top_probs, redraw_seeds, positions)
     redraw_ids = top_ids.gather(1, redraw_ranks.long().unsqueeze(1)).squeeze(1)
