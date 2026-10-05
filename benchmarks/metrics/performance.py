@@ -444,6 +444,7 @@ def _request_result_to_dict(output: RequestResult) -> dict:
     underrun = getattr(output, "max_playback_underrun_s", None)
     return {
         "id": output.request_id,
+        "server_request_id": output.server_request_id or None,
         "text": output.text,
         "is_success": output.is_success,
         "latency_s": round(output.latency_s, 4),

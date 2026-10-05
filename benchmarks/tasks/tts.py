@@ -1138,6 +1138,7 @@ def _parse_response_headers(result: RequestResult, headers: dict) -> None:
     if eng_time is not None:
         result.engine_time_s = float(eng_time)
     result.finish_reason = finish_reason_from_server(headers.get("X-Finish-Reason"))
+    result.server_request_id = headers.get("X-Request-Id", "")
     set_token_rate(result)
 
 
@@ -1441,6 +1442,7 @@ def make_tts_send_fn(
                     result.speech_outcome_id = response.headers.get(
                         "X-SGLang-Omni-Speech-Id", ""
                     )
+                    result.server_request_id = response.headers.get("X-Request-Id", "")
                     result.server_worker_id = response.headers.get(
                         "X-SGLang-Omni-Worker", ""
                     )
