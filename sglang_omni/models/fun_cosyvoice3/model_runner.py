@@ -21,6 +21,7 @@ from sglang_omni.model_runner.mlx_model_worker import MlxSchedulerModelRunner
 from sglang_omni.model_runner.model_worker import ModelWorker
 from sglang_omni.model_runner.sglang_execution import attn_forward_context
 from sglang_omni.models.fun_cosyvoice3.request_builders import (
+    COSYVOICE3_QUIET_TOKEN_IDS,
     CosyVoice3SGLangRequestData,
     accept_cosyvoice3_stream_token,
 )
@@ -34,7 +35,10 @@ from sglang_omni.models.fun_cosyvoice3.streaming import (
     prompt_token_len,
 )
 from sglang_omni.platforms import current_platform
-from sglang_omni.sampling.repetition_aware import repetition_aware_redraw
+from sglang_omni.sampling.repetition_aware import (
+    conservative_repetition_aware_redraw,
+    repetition_aware_redraw,
+)
 from sglang_omni.sampling.seed import SAMPLING_SEED_MASK
 from sglang_omni.scheduling.message import OutgoingMessage
 from sglang_omni.scheduling.sglang_backend.output_processor import SGLangOutputProcessor
@@ -56,34 +60,43 @@ _COSYVOICE3_RAS_WINDOW_SIZE = 10
 # note (Yucheng Hu): experiment switch. When set to a file path, every finished
 # request appends one JSON line with its tokens and per-step sampler statistics.
 COSYVOICE3_TOKEN_TRACE_ENV = "SGLANG_OMNI_COSYVOICE3_TOKEN_TRACE"
-# note (Yucheng Hu): experiment switch; "off" disables the RAS redraw for A/B runs.
+# note (Yucheng Hu): experiment switch: "off" disables the RAS redraw, "conservative"
+# masks the window's quiet ids and truncates the redraw (docs in omni-exp).
 COSYVOICE3_RAS_ENV = "SGLANG_OMNI_COSYVOICE3_RAS"
-# Upstream's silent/breath ids plus 243 and 27, the ids runaways loop on.
-COSYVOICE3_TRACE_SILENT_TOKEN_IDS = (
-    1,
-    2,
-    27,
-    28,
-    29,
-    55,
-    243,
-    248,
-    494,
-    2241,
-    2242,
-    2322,
-    2323,
-)
-# Columns of a trace step: stop-token mass, silent-id mass, top probability,
-# top id, sampled candidate before RAS, and whether RAS replaced it.
+# note (Yucheng Hu): experiment switch; "on" enables the silence governor.
+COSYVOICE3_GOVERNOR_ENV = "SGLANG_OMNI_COSYVOICE3_GOVERNOR"
+# Governor thresholds in consecutive quiet tokens (25 per second), with about 2x
+# headroom over the phase-0 natural pauses: before speech, mid-sentence, and
+# once 2.5 x the target text tokens have been spoken.
+COSYVOICE3_GOVERNOR_LEAD_TOKENS = 40
+COSYVOICE3_GOVERNOR_MID_TOKENS = 25
+COSYVOICE3_GOVERNOR_TAIL_TOKENS = 15
+COSYVOICE3_GOVERNOR_SPEECH_STARTED_TOKENS = 6
+COSYVOICE3_GOVERNOR_TAIL_RATIO = 2.5
+# Logit penalty per quiet token beyond the threshold, and how much one
+# non-quiet token shrinks the quiet run.
+COSYVOICE3_GOVERNOR_PENALTY_PER_TOKEN = 0.5
+COSYVOICE3_GOVERNOR_RUN_DECAY = 4
+# The conservative redraw may pick a stop token only after this many voiced
+# tokens per target text token.
+COSYVOICE3_REDRAW_STOP_RATIO = 3
+# Columns of a trace step: stop-token mass, quiet-class mass, top probability,
+# top id, sampled candidate before RAS, whether RAS replaced it, and the
+# governor's logit penalty on the quiet class.
 COSYVOICE3_TRACE_COLUMNS = (
     "p_stop",
-    "p_silent",
+    "p_quiet",
     "top_prob",
     "top_id",
     "candidate",
     "redrawn",
+    "governor_penalty",
 )
+
+
+def cosyvoice3_target_text_tokens(data: CosyVoice3SGLangRequestData) -> int:
+    """Target text token count n, recovered from min_new_tokens = 2n."""
+    return max(1, data.req.sampling_params.min_new_tokens // 2)
 
 
 class FunCosyVoice3ModelRunner(ModelRunner):
@@ -92,7 +105,11 @@ class FunCosyVoice3ModelRunner(ModelRunner):
     # Off unless COSYVOICE3_TOKEN_TRACE_ENV is set; class defaults keep runners
     # built without __init__ (tests) on the untraced path.
     token_trace_path: str | None = None
-    pending_trace_stats: torch.Tensor | None = None
+    pending_trace_stats: tuple[torch.Tensor, torch.Tensor] | None = None
+    pending_governor_penalties: list[float] | None = None
+    ras_mode: str = "on"
+    governor_enabled: bool = False
+    token_class_masks: tuple[torch.Tensor, torch.Tensor] | None = None
 
     tp_worker: ModelWorker
     model: FunCosyVoice3SGLangModel
@@ -117,8 +134,11 @@ class FunCosyVoice3ModelRunner(ModelRunner):
         self.cosyvoice3_recent_tokens: dict[str, list[int]] = {}
         self.token_trace_path = os.environ.get(COSYVOICE3_TOKEN_TRACE_ENV)
         self.token_traces: dict[str, dict[str, list[object]]] = {}
-        self.pending_trace_stats: torch.Tensor | None = None
-        self.trace_silent_ids: torch.Tensor | None = None
+        self.pending_trace_stats: tuple[torch.Tensor, torch.Tensor] | None = None
+        self.pending_governor_penalties: list[float] | None = None
+        self.ras_mode = os.environ.get(COSYVOICE3_RAS_ENV, "on")
+        self.governor_enabled = os.environ.get(COSYVOICE3_GOVERNOR_ENV) == "on"
+        self.token_class_masks: tuple[torch.Tensor, torch.Tensor] | None = None
 
     def set_stream_outbox(self, outbox: Queue[OutgoingMessage]) -> None:
         self.outbox = outbox
@@ -280,6 +300,70 @@ class FunCosyVoice3ModelRunner(ModelRunner):
             pass
         return next_token_ids
 
+    def token_masks(self, logits: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """[V] bool masks of the quiet class and the stop tokens on the logits' device."""
+        if self.token_class_masks is None:
+            quiet = torch.zeros(logits.shape[1], dtype=torch.bool)
+            quiet[list(COSYVOICE3_QUIET_TOKEN_IDS)] = True
+            stop = torch.zeros(logits.shape[1], dtype=torch.bool)
+            stop[VOCAB_SIZE:] = True
+            self.token_class_masks = (
+                quiet.to(logits.device),
+                stop.to(logits.device),
+            )
+        else:
+            pass
+        return self.token_class_masks
+
+    def process_sampling_logits(
+        self, logits_output: LogitsProcessorOutput, requests: list[SchedulerRequest]
+    ) -> None:
+        """Silence governor: push the quiet class down once a quiet run is too long.
+
+        Before speech starts it also masks the stop tokens, so the model starts
+        speaking instead of ending silent. The decision runs on the host from
+        counters collect_tokens keeps, so normal steps launch no kernel.
+        """
+        if not self.governor_enabled:
+            self.pending_governor_penalties = None
+            return
+        else:
+            pass
+        penalties, force_onset = [], []
+        for request in requests:
+            data = request.data
+            text_tokens = cosyvoice3_target_text_tokens(data)
+            if data.voiced_tokens < COSYVOICE3_GOVERNOR_SPEECH_STARTED_TOKENS:
+                limit = COSYVOICE3_GOVERNOR_LEAD_TOKENS
+            elif data.voiced_tokens < COSYVOICE3_GOVERNOR_TAIL_RATIO * text_tokens:
+                limit = COSYVOICE3_GOVERNOR_MID_TOKENS
+            else:
+                limit = COSYVOICE3_GOVERNOR_TAIL_TOKENS
+            excess = data.quiet_run - limit
+            penalties.append(max(0, excess) * COSYVOICE3_GOVERNOR_PENALTY_PER_TOKEN)
+            force_onset.append(
+                excess > 0
+                and data.voiced_tokens < COSYVOICE3_GOVERNOR_SPEECH_STARTED_TOKENS
+            )
+        self.pending_governor_penalties = penalties
+        if not any(penalties):
+            return
+        else:
+            pass
+        logits = logits_output.next_token_logits
+        control = torch.tensor([penalties, force_onset], dtype=logits.dtype).to(
+            logits.device, non_blocking=True
+        )
+        quiet_mask, stop_mask = self.token_masks(logits)
+        logits.addcmul_(
+            control[0].unsqueeze(1),
+            quiet_mask.to(logits.dtype).unsqueeze(0),
+            value=-1.0,
+        )
+        logits.masked_fill_(
+            (control[1] > 0).unsqueeze(1) & stop_mask.unsqueeze(0), float("-inf")
+        )
+
     def process_sampled_token_ids(
         self,
         logits_output: LogitsProcessorOutput,
@@ -291,37 +375,32 @@ class FunCosyVoice3ModelRunner(ModelRunner):
 
         The redraw masks the candidate and samples the full distribution at the
         request temperature, so EOS stays reachable after top-k/top-p collapses
-        onto the repeated token.
+        onto the repeated token. The experiment's "conservative" mode uses
+        conservative_repetition_aware_redraw instead.
         """
         sampling_info = forward_batch.sampling_info
-        trace_stats = None
+        trace_ids = None
         if self.token_trace_path is not None and not sampling_info.is_all_greedy:
-            trace_probs = logits_output.next_token_logits
-            if self.trace_silent_ids is None:
-                self.trace_silent_ids = torch.tensor(
-                    COSYVOICE3_TRACE_SILENT_TOKEN_IDS, device=trace_probs.device
-                )
-            else:
-                pass
+            trace_probs = logits_output.next_token_logits.float()
             top_prob, top_id = trace_probs.max(dim=1)
-            trace_stats = torch.stack(
+            trace_floats = torch.stack(
                 [
                     trace_probs[:, VOCAB_SIZE:].sum(dim=1),
-                    trace_probs[:, self.trace_silent_ids].sum(dim=1),
+                    (trace_probs * self.token_masks(trace_probs)[0]).sum(dim=1),
                     top_prob,
-                    top_id,
-                    next_token_ids,
-                    torch.zeros_like(top_prob),
                 ],
                 dim=1,
-            ).float()
+            )
+            trace_ids = torch.stack(
+                [top_id, next_token_ids.long(), torch.zeros_like(top_id)], dim=1
+            )
+            self.pending_trace_stats = (trace_floats, trace_ids)
         else:
-            pass
-        self.pending_trace_stats = trace_stats
+            self.pending_trace_stats = None
         if (
             sampling_info.is_all_greedy
             or not forward_batch.forward_mode.is_decode()
-            or os.environ.get(COSYVOICE3_RAS_ENV) == "off"
+            or self.ras_mode == "off"
         ):
             return next_token_ids
         else:
@@ -329,17 +408,42 @@ class FunCosyVoice3ModelRunner(ModelRunner):
         # note (Yucheng Hu): the pytorch sampler softmaxes next_token_logits in place
         # and applies top-k/top-p to a sorted copy.
         probs = logits_output.next_token_logits
-        next_token_ids, is_repeated = repetition_aware_redraw(
-            probs,
-            next_token_ids,
-            [request.data.req.output_ids for request in requests],
-            _COSYVOICE3_RAS_WINDOW_SIZE,
-            (next_token_ids < VOCAB_SIZE) & (sampling_info.top_ks != 1),
-            sampling_info.sampling_seed,
-            forward_batch.positions,
-        )
-        if trace_stats is not None:
-            trace_stats[:, 5] = is_repeated.float()
+        redraw_allowed = (next_token_ids < VOCAB_SIZE) & (sampling_info.top_ks != 1)
+        output_ids = [request.data.req.output_ids for request in requests]
+        if self.ras_mode == "conservative":
+            quiet_mask, stop_mask = self.token_masks(probs)
+            next_token_ids, is_repeated = conservative_repetition_aware_redraw(
+                probs,
+                next_token_ids,
+                output_ids,
+                _COSYVOICE3_RAS_WINDOW_SIZE,
+                redraw_allowed,
+                quiet_mask,
+                stop_mask,
+                [
+                    request.data.voiced_tokens
+                    >= COSYVOICE3_REDRAW_STOP_RATIO
+                    * cosyvoice3_target_text_tokens(request.data)
+                    for request in requests
+                ],
+                sampling_info.top_ks,
+                sampling_info.top_ps,
+                max(request.data.req.sampling_params.top_k for request in requests),
+                sampling_info.sampling_seed,
+                forward_batch.positions,
+            )
+        else:
+            next_token_ids, is_repeated = repetition_aware_redraw(
+                probs,
+                next_token_ids,
+                output_ids,
+                _COSYVOICE3_RAS_WINDOW_SIZE,
+                redraw_allowed,
+                sampling_info.sampling_seed,
+                forward_batch.positions,
+            )
+        if trace_ids is not None:
+            trace_ids[:, 2] = is_repeated.long()
         else:
             pass
         if logits_output.next_token_logprobs is not None:
@@ -486,12 +590,20 @@ class FunCosyVoice3ModelRunner(ModelRunner):
             pass
         # note (guozhihao-224): one batched D2H instead of per-request .item() syncs.
         token_ids_cpu = token_ids.tolist()
-        trace_rows = (
-            self.pending_trace_stats.tolist()
-            if self.pending_trace_stats is not None
-            else None
-        )
+        trace_rows = None
+        if self.pending_trace_stats is not None:
+            trace_floats, trace_ids = self.pending_trace_stats
+            penalties = self.pending_governor_penalties or [0.0] * len(requests)
+            trace_rows = [
+                floats + ids + [penalty]
+                for floats, ids, penalty in zip(
+                    trace_floats.tolist(), trace_ids.tolist(), penalties
+                )
+            ]
+        else:
+            pass
         self.pending_trace_stats = None
+        self.pending_governor_penalties = None
         for idx, sched_req in enumerate(requests):
             token_id = int(token_ids_cpu[idx])
             if self.token_trace_path is not None:
@@ -506,6 +618,12 @@ class FunCosyVoice3ModelRunner(ModelRunner):
                 continue
             else:
                 pass
+            data = sched_req.data
+            if token_id in COSYVOICE3_QUIET_TOKEN_IDS:
+                data.quiet_run += 1
+            else:
+                data.quiet_run = max(0, data.quiet_run - COSYVOICE3_GOVERNOR_RUN_DECAY)
+                data.voiced_tokens += 1
             token = torch.tensor([token_id], dtype=torch.long)
             sched_req.data.output_codes.append(token)
             self.queue_or_emit_code_chunk(sched_req, token)

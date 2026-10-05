@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import threading
 import time
 from collections.abc import Callable, Mapping
@@ -70,6 +71,22 @@ _COSYVOICE3_SILENT_TOKEN_IDS = frozenset(
     {1, 2, 28, 29, 55, 248, 494, 2241, 2242, 2322, 2323}
 )
 _COSYVOICE3_MAX_CONSECUTIVE_SILENT_TOKENS = 5
+# note (Yucheng Hu): ids whose rendered 40 ms frames fall below -55 dBFS in at
+# least 90% (deep) or 80% (quiet) of 979k aligned tokens from the phase-0 A/B
+# (omni-exp docs/design-silence-governor.md); none of upstream's 11 ids is deep.
+COSYVOICE3_DEEP_SILENT_TOKEN_IDS = frozenset(
+    {243, 244, 245, 270, 271, 326, 487, 2430, 2431, 2432, 2513, 2756}
+)
+COSYVOICE3_QUIET_TOKEN_IDS = COSYVOICE3_DEEP_SILENT_TOKEN_IDS | frozenset(
+    {0, 1, 27, 28, 29, 38, 247, 325, 488, 2214, 2674}
+)
+# note (Yucheng Hu): experiment switch; "deep" filters the calibrated deep class
+# before the vocoder instead of upstream's silent and breath ids.
+COSYVOICE3_FILTERED_SILENT_TOKEN_IDS = (
+    COSYVOICE3_DEEP_SILENT_TOKEN_IDS
+    if os.environ.get("SGLANG_OMNI_COSYVOICE3_SILENT_FILTER") == "deep"
+    else _COSYVOICE3_SILENT_TOKEN_IDS
+)
 
 _GENERATION_FIELDS = (
     "do_sample",
@@ -221,6 +238,8 @@ class CosyVoice3SGLangRequestData(SGLangARRequestData):
     stream_code_next_flush: int = 0
     stream_prompt_sent: bool = False
     stream_silent_run: int = 0
+    quiet_run: int = 0
+    voiced_tokens: int = 0
     flow_prompt_speech_token: torch.Tensor | None = None
     flow_prompt_speech_feat: torch.Tensor | None = None
     flow_embedding: torch.Tensor | None = None
@@ -1034,7 +1053,7 @@ def filter_cosyvoice3_silent_runs(codes: torch.Tensor) -> torch.Tensor:
     keep = []
     consecutive_silent_tokens = 0
     for token_id in token_rows[:, 0].tolist():
-        if token_id in _COSYVOICE3_SILENT_TOKEN_IDS:
+        if token_id in COSYVOICE3_FILTERED_SILENT_TOKEN_IDS:
             consecutive_silent_tokens += 1
             keep.append(
                 consecutive_silent_tokens <= _COSYVOICE3_MAX_CONSECUTIVE_SILENT_TOKENS
@@ -1050,7 +1069,7 @@ def accept_cosyvoice3_stream_token(
 ) -> bool:
     """Apply the buffered silent-run policy before emitting a stream chunk."""
     token_id = int(token.reshape(-1)[0].item())
-    if token_id in _COSYVOICE3_SILENT_TOKEN_IDS:
+    if token_id in COSYVOICE3_FILTERED_SILENT_TOKEN_IDS:
         data.stream_silent_run += 1
         return data.stream_silent_run <= _COSYVOICE3_MAX_CONSECUTIVE_SILENT_TOKENS
     else:

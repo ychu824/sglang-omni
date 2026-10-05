@@ -31,15 +31,19 @@ def test_cosyvoice3_runner_collects_speech_tokens_and_skips_eos() -> None:
     runner.outbox = None
     requests = [
         SimpleNamespace(data=CosyVoice3SGLangRequestData()),
+        SimpleNamespace(data=CosyVoice3SGLangRequestData(quiet_run=6)),
         SimpleNamespace(data=CosyVoice3SGLangRequestData()),
     ]
-    result = SimpleNamespace(next_token_ids=torch.tensor([[EOS_ID], [13]]))
+    result = SimpleNamespace(next_token_ids=torch.tensor([[EOS_ID], [13], [243]]))
 
     runner.collect_tokens(result, None, None, requests)
 
     assert requests[0].data.output_codes == []
     assert [code.item() for code in requests[1].data.output_codes] == [13]
     assert requests[1].data.output_codes[0].dtype == torch.long
+    # A voiced token shrinks the quiet run by 4; a quiet token extends it.
+    assert (requests[1].data.quiet_run, requests[1].data.voiced_tokens) == (2, 1)
+    assert (requests[2].data.quiet_run, requests[2].data.voiced_tokens) == (1, 0)
 
 
 def test_cosyvoice3_runner_skips_all_control_tokens() -> None:
@@ -340,6 +344,76 @@ def test_cosyvoice3_ras_redraws_repeated_speech_token_from_full_distribution(
     ]
     assert redraw_probs[0][0, 9].item() == 0.0
     assert redraw_probs[0][0, EOS_ID].item() == pytest.approx(0.1)
+
+
+def test_cosyvoice3_silence_governor_penalizes_quiet_class_by_phase() -> None:
+    # Rows: silent before speech (over 40), a mid-sentence pause (under 25),
+    # and a pause after the sentence (over 15). n = 10 target text tokens.
+    runner = object.__new__(FunCosyVoice3ModelRunner)
+    runner.governor_enabled = True
+    requests = [
+        SimpleNamespace(
+            data=CosyVoice3SGLangRequestData(
+                quiet_run=quiet_run,
+                voiced_tokens=voiced_tokens,
+                req=SimpleNamespace(sampling_params=SimpleNamespace(min_new_tokens=20)),
+            )
+        )
+        for quiet_run, voiced_tokens in [(42, 0), (20, 10), (20, 25)]
+    ]
+    logits = torch.zeros((3, EOS_ID + 1))
+
+    runner.process_sampling_logits(SimpleNamespace(next_token_logits=logits), requests)
+
+    assert runner.pending_governor_penalties == [1.0, 0.0, 2.5]
+    assert logits[:, 243].tolist() == [-1.0, 0.0, -2.5]
+    assert logits[:, 13].tolist() == [0.0, 0.0, 0.0]
+    assert logits[:, EOS_ID].tolist() == [float("-inf"), 0.0, 0.0]
+
+
+def test_cosyvoice3_conservative_redraw_masks_quiet_window_then_truncates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Rows: a repeated quiet token before the stop gate opens, a repeated
+    # voiced token, a new token, and a repeat holding all the mass.
+    probs = torch.zeros((4, EOS_ID + 1))
+    probs[0, [243, 27, 13, 50, EOS_ID]] = torch.tensor([0.4, 0.2, 0.1, 0.15, 0.15])
+    probs[1, [13, 27, 7]] = torch.tensor([0.6, 0.3, 0.1])
+    probs[2, 5] = probs[3, 9] = 1.0
+    quiet = torch.zeros(EOS_ID + 1, dtype=torch.bool)
+    quiet[[27, 243]] = True
+    stop = torch.zeros(EOS_ID + 1, dtype=torch.bool)
+    stop[VOCAB_SIZE:] = True
+    redraw_probs = []
+
+    def take_most_likely(probs, sampling_seed, positions):
+        redraw_probs.append(probs)
+        return probs.argmax(dim=1).to(torch.int32)
+
+    monkeypatch.setattr(
+        repetition_aware_module, "sampling_from_probs_torch", take_most_likely
+    )
+
+    token_ids, redrawn = repetition_aware_module.conservative_repetition_aware_redraw(
+        probs,
+        torch.tensor([243, 13, 5, 9], dtype=torch.int32),
+        [[27, 243, 13], [27, 13], [1, 2], [9]],
+        10,
+        torch.ones(4, dtype=torch.bool),
+        quiet,
+        stop,
+        [False, True, True, True],
+        torch.tensor([3, 20, 20, 20]),
+        torch.tensor([1.0, 0.5, 1.0, 1.0]),
+        20,
+        None,
+        torch.arange(4),
+    )
+
+    assert token_ids.tolist() == [50, 27, 5, 9]
+    assert redrawn.tolist() == [True, True, False, False]
+    assert redraw_probs[0][0, :2].tolist() == pytest.approx([0.6, 0.4])
+    assert redraw_probs[0][1, :2].tolist() == pytest.approx([0.75, 0.0])
 
 
 def test_cosyvoice3_load_weights_maps_custom_and_backbone_keys(
