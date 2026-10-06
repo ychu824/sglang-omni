@@ -210,9 +210,17 @@ class FunCosyVoice3EngineBuilder(TtsEngineBuilder[CosyVoice3SGLangRequestData]):
         campplus_path = os.path.join(root, "campplus.onnx")
 
         tokenizer = CosyVoice3Tokenizer(tokenizer_path)
+        # note (Yucheng Hu): experiment switch; the CUDA speech tokenizer can flip a
+        # prompt token between processes, which breaks runs paired across servers.
+        speech_tokenizer_device = os.environ.get(
+            "SGLANG_OMNI_COSYVOICE3_SPEECH_TOKENIZER_DEVICE", device
+        )
+        logger.info(
+            "Fun-CosyVoice3 speech tokenizer device: %s", speech_tokenizer_device
+        )
         speech_tokenizer = SpeechTokenizerV3(
             speech_tokenizer_path,
-            device=device,
+            device=speech_tokenizer_device,
             intra_op_threads=self.onnx_intra_op_threads,
         )
         speaker_encoder = SpeakerEncoder(
