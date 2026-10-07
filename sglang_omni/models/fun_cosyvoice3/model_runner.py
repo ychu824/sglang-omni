@@ -67,6 +67,9 @@ COSYVOICE3_SWITCH_INTERVAL_US_ENV = "SGLANG_OMNI_COSYVOICE3_SWITCH_INTERVAL_US"
 # releasing the GIL without GPU work; sync waits for the decode stream with the GIL
 # released; the probe records GIL wake-up latency while its flag file exists.
 COSYVOICE3_DECODE_YIELDS_ENV = "SGLANG_OMNI_COSYVOICE3_DECODE_YIELDS"
+# CUDA ops add N tiny in-place ops on a one-element device tensor per decode step: the
+# same GIL release and kernel-launch path as the redraw's ops, without its host work.
+COSYVOICE3_DECODE_CUDA_OPS_ENV = "SGLANG_OMNI_COSYVOICE3_DECODE_CUDA_OPS"
 COSYVOICE3_DECODE_SYNC_ENV = "SGLANG_OMNI_COSYVOICE3_DECODE_SYNC"
 COSYVOICE3_GIL_PROBE_PATH_ENV = "SGLANG_OMNI_COSYVOICE3_GIL_PROBE_PATH"
 COSYVOICE3_GIL_PROBE_FLAG_ENV = "SGLANG_OMNI_COSYVOICE3_GIL_PROBE_FLAG"
@@ -79,10 +82,13 @@ def gil_probe(path: str, flag: str) -> None:
     with open(path, "a") as out:
         while True:
             if os.path.exists(flag):
-                start = time.perf_counter_ns()
-                time.sleep(0.001)
-                late = time.perf_counter_ns() - start - 1_000_000
-                out.write(f"{time.time_ns()} {late}\n")
+                # note (Yucheng Hu): check the flag once per 100 samples, not per sample,
+                # so the probe takes the GIL only once per wake-up.
+                for _ in range(100):
+                    start = time.perf_counter_ns()
+                    time.sleep(0.001)
+                    late = time.perf_counter_ns() - start - 1_000_000
+                    out.write(f"{time.time_ns()} {late}\n")
             else:
                 out.flush()
                 time.sleep(0.1)
@@ -112,6 +118,8 @@ class FunCosyVoice3ModelRunner(ModelRunner):
     decode_gpu_sleep_cycles: int | None = None
     decode_yields: int = 0
     decode_sync: bool = False
+    decode_cuda_ops: int = 0
+    decode_op_buffer: torch.Tensor | None = None
 
     def __init__(
         self,
@@ -146,6 +154,7 @@ class FunCosyVoice3ModelRunner(ModelRunner):
             pass
         self.decode_yields = int(os.environ.get(COSYVOICE3_DECODE_YIELDS_ENV, "0"))
         self.decode_sync = os.environ.get(COSYVOICE3_DECODE_SYNC_ENV) == "1"
+        self.decode_cuda_ops = int(os.environ.get(COSYVOICE3_DECODE_CUDA_OPS_ENV, "0"))
         probe_path = os.environ.get(COSYVOICE3_GIL_PROBE_PATH_ENV)
         if probe_path:
             threading.Thread(
@@ -158,12 +167,14 @@ class FunCosyVoice3ModelRunner(ModelRunner):
             pass
         logger.info(
             "Fun-CosyVoice3 TTFP study switches: ras_mode=%s decode_gpu_sleep_us=%d "
-            "switch_interval_us=%d decode_yields=%d decode_sync=%d gil_probe=%d",
+            "switch_interval_us=%d decode_yields=%d decode_sync=%d decode_cuda_ops=%d "
+            "gil_probe=%d",
             self.ras_mode,
             self.decode_gpu_sleep_us,
             round(sys.getswitchinterval() * 1e6),
             self.decode_yields,
             self.decode_sync,
+            self.decode_cuda_ops,
             bool(probe_path),
         )
 
@@ -357,6 +368,15 @@ class FunCosyVoice3ModelRunner(ModelRunner):
             pass
         for _ in range(self.decode_yields):
             time.sleep(0)
+        if self.decode_cuda_ops > 0:
+            if self.decode_op_buffer is None:
+                self.decode_op_buffer = torch.zeros(1, device=next_token_ids.device)
+            else:
+                pass
+            for _ in range(self.decode_cuda_ops):
+                self.decode_op_buffer.add_(0)
+        else:
+            pass
         if self.decode_sync:
             torch.cuda.current_stream().synchronize()
         else:
