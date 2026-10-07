@@ -48,6 +48,8 @@ from sglang_omni.scheduling.pipeline_state import build_usage
 from sglang_omni.scheduling.streaming_vocoder import StreamingVocoderBase
 from sglang_omni.utils.audio_payload import audio_waveform_payload
 
+# note (Yucheng Hu): TTFP study; per-thread usage is Linux-only, macOS falls back to the process.
+RUSAGE_HOP = getattr(resource, "RUSAGE_THREAD", resource.RUSAGE_SELF)
 logger = logging.getLogger(__name__)
 
 SAMPLE_RATE = 24000
@@ -472,7 +474,7 @@ class FunCosyVoice3StreamingVocoderScheduler(
                 time.perf_counter_ns(),
                 time.thread_time_ns(),
             )
-            hop_usage_start = resource.getrusage(resource.RUSAGE_THREAD)
+            hop_usage_start = resource.getrusage(RUSAGE_HOP)
             first_hops = sum(state.token_offset == 0 for _, state in participants)
             items = [
                 FlowBatchInput(
@@ -501,7 +503,7 @@ class FunCosyVoice3StreamingVocoderScheduler(
                     decoded[request_id] = delta
                 else:
                     pass
-            hop_usage = resource.getrusage(resource.RUSAGE_THREAD)
+            hop_usage = resource.getrusage(RUSAGE_HOP)
             logger.info(
                 "Fun-CosyVoice3 vocoder causal hop: batch=%d first=%d wall_ms=%.3f "
                 "cpu_ms=%.3f voluntary_switches=%d involuntary_switches=%d",
