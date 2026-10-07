@@ -70,6 +70,10 @@ COSYVOICE3_DECODE_YIELDS_ENV = "SGLANG_OMNI_COSYVOICE3_DECODE_YIELDS"
 # CUDA ops add N tiny in-place ops on a one-element device tensor per decode step: the
 # same GIL release and kernel-launch path as the redraw's ops, without its host work.
 COSYVOICE3_DECODE_CUDA_OPS_ENV = "SGLANG_OMNI_COSYVOICE3_DECODE_CUDA_OPS"
+# Staged reads the step's token ids through the base runner's pinned buffer and event
+# instead of .tolist() on the device tensor: a synchronous D2H into pageable memory
+# blocks the vocoder thread's kernel launches for the whole GPU step.
+COSYVOICE3_STAGED_TOKEN_READ_ENV = "SGLANG_OMNI_COSYVOICE3_STAGED_TOKEN_READ"
 COSYVOICE3_DECODE_SYNC_ENV = "SGLANG_OMNI_COSYVOICE3_DECODE_SYNC"
 COSYVOICE3_GIL_PROBE_PATH_ENV = "SGLANG_OMNI_COSYVOICE3_GIL_PROBE_PATH"
 COSYVOICE3_GIL_PROBE_FLAG_ENV = "SGLANG_OMNI_COSYVOICE3_GIL_PROBE_FLAG"
@@ -119,6 +123,7 @@ class FunCosyVoice3ModelRunner(ModelRunner):
     decode_yields: int = 0
     decode_sync: bool = False
     decode_cuda_ops: int = 0
+    staged_token_read: bool = False
     decode_op_buffer: torch.Tensor | None = None
 
     def __init__(
@@ -155,6 +160,7 @@ class FunCosyVoice3ModelRunner(ModelRunner):
         self.decode_yields = int(os.environ.get(COSYVOICE3_DECODE_YIELDS_ENV, "0"))
         self.decode_sync = os.environ.get(COSYVOICE3_DECODE_SYNC_ENV) == "1"
         self.decode_cuda_ops = int(os.environ.get(COSYVOICE3_DECODE_CUDA_OPS_ENV, "0"))
+        self.staged_token_read = os.environ.get(COSYVOICE3_STAGED_TOKEN_READ_ENV) == "1"
         probe_path = os.environ.get(COSYVOICE3_GIL_PROBE_PATH_ENV)
         if probe_path:
             threading.Thread(
@@ -168,13 +174,14 @@ class FunCosyVoice3ModelRunner(ModelRunner):
         logger.info(
             "Fun-CosyVoice3 TTFP study switches: ras_mode=%s decode_gpu_sleep_us=%d "
             "switch_interval_us=%d decode_yields=%d decode_sync=%d decode_cuda_ops=%d "
-            "gil_probe=%d",
+            "staged_token_read=%d gil_probe=%d",
             self.ras_mode,
             self.decode_gpu_sleep_us,
             round(sys.getswitchinterval() * 1e6),
             self.decode_yields,
             self.decode_sync,
             self.decode_cuda_ops,
+            self.staged_token_read,
             bool(probe_path),
         )
 
@@ -522,7 +529,11 @@ class FunCosyVoice3ModelRunner(ModelRunner):
         else:
             pass
         # note (guozhihao-224): one batched D2H instead of per-request .item() syncs.
-        token_ids_cpu = token_ids.tolist()
+        if self.staged_token_read:
+            self.stage_token_ids(result, token_ids)
+            token_ids_cpu = self.resolve_host_token_ids(result).tolist()
+        else:
+            token_ids_cpu = token_ids.tolist()
         for idx, sched_req in enumerate(requests):
             token_id = int(token_ids_cpu[idx])
             if token_id >= VOCAB_SIZE:
