@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import logging
 import os
-import time
+import sys
 from contextlib import AbstractContextManager, nullcontext
 from queue import Queue
 from typing import TYPE_CHECKING
@@ -55,12 +55,28 @@ else:
 
 _COSYVOICE3_RAS_WINDOW_SIZE = 10
 # note (Yucheng Hu): experiment switches for the streaming time-to-first-audio study:
-# "shadow" runs the redraw and emits the first draw anyway; the spin busy-waits on
-# the host after every non-greedy decode step's sampling.
+# "shadow" runs the redraw and emits the first draw anyway; the GPU sleep adds a
+# device-side delay to every non-greedy decode step without holding the GIL; the
+# switch interval changes how often Python threads in this process hand off the GIL.
 COSYVOICE3_RAS_MODE_ENV = "SGLANG_OMNI_COSYVOICE3_RAS_MODE"
-COSYVOICE3_DECODE_SPIN_US_ENV = "SGLANG_OMNI_COSYVOICE3_DECODE_SPIN_US"
+COSYVOICE3_DECODE_GPU_SLEEP_US_ENV = "SGLANG_OMNI_COSYVOICE3_DECODE_GPU_SLEEP_US"
+COSYVOICE3_SWITCH_INTERVAL_US_ENV = "SGLANG_OMNI_COSYVOICE3_SWITCH_INTERVAL_US"
 
 logger = logging.getLogger(__name__)
+
+
+def calibrate_gpu_sleep_cycles(microseconds: int) -> int:
+    """Cycles for torch.cuda._sleep to take about `microseconds` on this GPU."""
+    probe_cycles = 10_000_000
+    start = torch.cuda.Event(enable_timing=True)
+    end = torch.cuda.Event(enable_timing=True)
+    start.record()
+    torch.cuda._sleep(probe_cycles)  # noqa: leading-underscore
+    end.record()
+    end.synchronize()
+    cycles = int(probe_cycles * microseconds / (start.elapsed_time(end) * 1000))
+    logger.info("Fun-CosyVoice3 GPU sleep: %d us = %d cycles", microseconds, cycles)
+    return cycles
 
 
 class FunCosyVoice3ModelRunner(ModelRunner):
@@ -69,7 +85,8 @@ class FunCosyVoice3ModelRunner(ModelRunner):
     tp_worker: ModelWorker
     model: FunCosyVoice3SGLangModel
     ras_mode: str = "on"
-    decode_spin_s: float = 0.0
+    decode_gpu_sleep_us: int = 0
+    decode_gpu_sleep_cycles: int | None = None
 
     def __init__(
         self,
@@ -94,13 +111,20 @@ class FunCosyVoice3ModelRunner(ModelRunner):
             raise ValueError(f"{COSYVOICE3_RAS_MODE_ENV} must be on, off or shadow")
         else:
             pass
-        self.decode_spin_s = (
-            int(os.environ.get(COSYVOICE3_DECODE_SPIN_US_ENV, "0")) / 1e6
+        self.decode_gpu_sleep_us = int(
+            os.environ.get(COSYVOICE3_DECODE_GPU_SLEEP_US_ENV, "0")
         )
+        switch_interval_us = int(os.environ.get(COSYVOICE3_SWITCH_INTERVAL_US_ENV, "0"))
+        if switch_interval_us > 0:
+            sys.setswitchinterval(switch_interval_us / 1e6)
+        else:
+            pass
         logger.info(
-            "Fun-CosyVoice3 TTFP study switches: ras_mode=%s decode_spin_us=%d",
+            "Fun-CosyVoice3 TTFP study switches: ras_mode=%s decode_gpu_sleep_us=%d "
+            "switch_interval_us=%d",
             self.ras_mode,
-            round(self.decode_spin_s * 1e6),
+            self.decode_gpu_sleep_us,
+            round(sys.getswitchinterval() * 1e6),
         )
 
     def set_stream_outbox(self, outbox: Queue[OutgoingMessage]) -> None:
@@ -281,10 +305,14 @@ class FunCosyVoice3ModelRunner(ModelRunner):
             return next_token_ids
         else:
             pass
-        if self.decode_spin_s > 0:
-            deadline = time.perf_counter() + self.decode_spin_s
-            while time.perf_counter() < deadline:
+        if self.decode_gpu_sleep_us > 0:
+            if self.decode_gpu_sleep_cycles is None:
+                self.decode_gpu_sleep_cycles = calibrate_gpu_sleep_cycles(
+                    self.decode_gpu_sleep_us
+                )
+            else:
                 pass
+            torch.cuda._sleep(self.decode_gpu_sleep_cycles)  # noqa: leading-underscore
         else:
             pass
         if self.ras_mode == "off":
