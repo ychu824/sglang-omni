@@ -12,6 +12,7 @@ the next step (or the stream-done flush) is when they become audio.
 from __future__ import annotations
 
 import logging
+import resource
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -471,6 +472,7 @@ class FunCosyVoice3StreamingVocoderScheduler(
                 time.perf_counter_ns(),
                 time.thread_time_ns(),
             )
+            hop_usage_start = resource.getrusage(resource.RUSAGE_THREAD)
             first_hops = sum(state.token_offset == 0 for _, state in participants)
             items = [
                 FlowBatchInput(
@@ -499,12 +501,16 @@ class FunCosyVoice3StreamingVocoderScheduler(
                     decoded[request_id] = delta
                 else:
                     pass
+            hop_usage = resource.getrusage(resource.RUSAGE_THREAD)
             logger.info(
-                "Fun-CosyVoice3 vocoder causal hop: batch=%d first=%d wall_ms=%.3f cpu_ms=%.3f",
+                "Fun-CosyVoice3 vocoder causal hop: batch=%d first=%d wall_ms=%.3f "
+                "cpu_ms=%.3f voluntary_switches=%d involuntary_switches=%d",
                 len(participants),
                 first_hops,
                 (time.perf_counter_ns() - hop_wall_start) / 1e6,
                 (time.thread_time_ns() - hop_cpu_start) / 1e6,
+                hop_usage.ru_nvcsw - hop_usage_start.ru_nvcsw,
+                hop_usage.ru_nivcsw - hop_usage_start.ru_nivcsw,
             )
             now = self.clock()
             for request_id, state in participants:
