@@ -465,6 +465,13 @@ class FunCosyVoice3StreamingVocoderScheduler(
                 self.complete_stream_request(request_id, self.finish_stream(request_id))
             return {}
         else:
+            # note (Yucheng Hu): TTFP study timing; a gap between wall and thread CPU
+            # time is time this thread spent waiting (GIL, GPU or the OS).
+            hop_wall_start, hop_cpu_start = (
+                time.perf_counter_ns(),
+                time.thread_time_ns(),
+            )
+            first_hops = sum(state.token_offset == 0 for _, state in participants)
             items = [
                 FlowBatchInput(
                     token=torch.tensor(
@@ -492,6 +499,13 @@ class FunCosyVoice3StreamingVocoderScheduler(
                     decoded[request_id] = delta
                 else:
                     pass
+            logger.info(
+                "Fun-CosyVoice3 vocoder causal hop: batch=%d first=%d wall_ms=%.3f cpu_ms=%.3f",
+                len(participants),
+                first_hops,
+                (time.perf_counter_ns() - hop_wall_start) / 1e6,
+                (time.thread_time_ns() - hop_cpu_start) / 1e6,
+            )
             now = self.clock()
             for request_id, state in participants:
                 state.token_offset += state.hop_len
