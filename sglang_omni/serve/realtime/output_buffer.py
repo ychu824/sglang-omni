@@ -20,6 +20,7 @@ from sglang_omni.serve.realtime.output import (
 from sglang_omni.serve.realtime.types import (
     PCM16_BYTES_PER_SAMPLE,
     Envelope,
+    OutputBudgetError,
     RuntimeLimits,
     Unit,
 )
@@ -63,7 +64,7 @@ class OutputBuffer:
             len(self.queued_envelopes) >= self.limits.max_output_events
             or self.queued_bytes + size_bytes > self.limits.max_output_bytes
         ):
-            raise RuntimeError("outbound event budget exhausted")
+            raise OutputBudgetError("outbound event budget exhausted")
         else:
             pass
         self.append_unbounded(envelope, size_bytes)
@@ -151,7 +152,7 @@ class OutputBuffer:
         if response_id in self.responses:
             raise RuntimeError("duplicate response creation")
         elif len(self.responses) >= self.limits.max_output_events:
-            raise RuntimeError("unfinished response budget exhausted")
+            raise OutputBudgetError("unfinished response budget exhausted")
         else:
             self.responses[response_id] = ResponseState(output_modalities=modalities)
 
