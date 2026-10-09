@@ -27,6 +27,22 @@ from sglang_omni.proto.session import (
 )
 
 
+class SessionIdleTimeoutError(TimeoutError):
+    """A session received no input within its idle timeout."""
+
+    CODE = "session_idle_timeout"
+
+    def __init__(self, idle_timeout_s: float) -> None:
+        super().__init__(f"no session input for {idle_timeout_s:g} s")
+
+
+class SessionOutputBudgetError(QueueFullError):
+    """The session output queue is at capacity."""
+
+    CODE = "output_budget_exhausted"
+    MESSAGE = "The session output queue is full."
+
+
 class SessionStreamHandler(Protocol):
     def __call__(self, message: StreamMessage) -> None: ...
 
@@ -323,7 +339,7 @@ class CoordinatorSessions:
             len(session.outputs) >= session.limits.max_output_chunks
             or session.output_bytes + size > session.limits.max_output_bytes
         ):
-            raise QueueFullError()
+            raise SessionOutputBudgetError()
         else:
             pass
         session.outputs.append((output, size))
@@ -336,10 +352,15 @@ class CoordinatorSessions:
             while not session.is_closing:
                 if not session.pending:
                     session.wake.clear()
-                    await asyncio.wait_for(
-                        session.wake.wait(), session.limits.idle_timeout_s
+                    wake_task = asyncio.create_task(session.wake.wait())
+                    done, _ = await asyncio.wait(
+                        {wake_task}, timeout=session.limits.idle_timeout_s
                     )
-                    continue
+                    if not done:
+                        wake_task.cancel()
+                        raise SessionIdleTimeoutError(session.limits.idle_timeout_s)
+                    else:
+                        continue
                 else:
                     pass
                 chunk, size = session.pending.popleft()
