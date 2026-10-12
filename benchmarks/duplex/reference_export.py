@@ -27,6 +27,14 @@ from benchmarks.duplex.v15_audio import normalize_audio, write_json
 from benchmarks.duplex.v15_dataset import SUBSETS, list_sample_dirs
 
 
+def send_receipts_required(run: Path) -> bool:
+    """Whether the run's recorder declared per-append send-completion receipts."""
+    source_manifest = read_json(run / "manifest.json")
+    sidecar = bool((source_manifest.get("source") or {}).get("campaign_adapter"))
+    transport = (source_manifest.get("config") or {}).get("transport") or {}
+    return sidecar or transport.get("input_send_receipts") == SEND_RECEIPTS
+
+
 def export_runs(
     runs: list[Path],
     output: Path,
@@ -36,7 +44,7 @@ def export_runs(
     trace_format: str | None = None,
 ) -> dict[str, JsonValue]:
     """Export every selected variant, retaining missing and invalid outcomes."""
-    capture_format = resolve_trace_format(engine, trace_format)
+    capture_format = resolve_trace_format(trace_format)
     output = output.resolve()
     for run in runs:
         if output.is_relative_to(run.resolve()):
@@ -81,10 +89,7 @@ def export_runs(
         else:
             pass
         run, entry = chosen[sample_id]
-        source_manifest = read_json(run / "manifest.json")
-        sidecar = bool((source_manifest.get("source") or {}).get("campaign_adapter"))
-        transport = (source_manifest.get("config") or {}).get("transport") or {}
-        sidecar = sidecar or transport.get("input_send_receipts") == SEND_RECEIPTS
+        sidecar = send_receipts_required(run)
         target = output / sample_id
         target.mkdir(parents=True)
         for variant, (input_name, output_name) in FILES.items():
@@ -116,7 +121,7 @@ def export_runs(
                 eligible=not reasons,
                 reasons=reasons,
                 flags=[k for k, v in record.get("boundary", {}).items() if v is True],
-                protocol_diagnostics=diagnostics(run, state, capture_format),
+                protocol_diagnostics=diagnostics(run, state),
             )
             if reasons:
                 record.pop("output", None)
