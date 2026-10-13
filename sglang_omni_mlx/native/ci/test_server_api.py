@@ -305,6 +305,42 @@ def test_realtime_manual_session(server: Server) -> None:
     assert indexes == sorted(indexes)
 
 
+def test_realtime_final_matches_the_transcription(server: Server) -> None:
+    pcm = pcm16("0186_zh_mid")
+    with connect(f"ws://127.0.0.1:{server.port}/v1/realtime") as socket:
+        socket.send(
+            json.dumps(
+                {
+                    "type": "session.update",
+                    "session": {"turn_detection": None, "language": "zh"},
+                }
+            )
+        )
+        assert json.loads(socket.recv())["type"] == "transcription_session.updated"
+        # Note (Yucheng Hu): Voxt's pace, so refreshes continue from shown text
+        # before the commit.
+        for start in range(0, len(pcm), 3200):
+            socket.send(
+                json.dumps(
+                    {
+                        "type": "input_audio_buffer.append",
+                        "audio": base64.b64encode(pcm[start : start + 3200]).decode(),
+                    }
+                )
+            )
+            time.sleep(0.1)
+        socket.send(json.dumps({"type": "input_audio_buffer.commit"}))
+        socket.send(json.dumps({"type": "transcription.done"}))
+        events = []
+        while not events or events[-1]["type"] != "transcription.completed":
+            events.append(json.loads(socket.recv()))
+    status, body = server.post_form(
+        {"language": "zh", "stop_on_token_loop": "true"}, clip("0186_zh_mid")
+    )
+    assert status == 200
+    assert events[-1]["text"] == json.loads(body)["text"]
+
+
 def test_end_of_stdin_stops_the_server() -> None:
     running = Server()
     running.process.stdin.close()
