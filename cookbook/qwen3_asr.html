@@ -217,6 +217,7 @@
 <li class="toctree-l1"><a class="reference internal" href="higgs_tts.html">Higgs TTS</a></li>
 <li class="toctree-l1"><a class="reference internal" href="voxtral_tts.html">Voxtral TTS</a></li>
 <li class="toctree-l1"><a class="reference internal" href="fishaudio_s2_pro.html">Fish Audio S2-Pro</a></li>
+<li class="toctree-l1"><a class="reference internal" href="fishaudio_drama3.html">Fish Audio Drama 3</a></li>
 <li class="toctree-l1"><a class="reference internal" href="qwen3_tts.html">Qwen3 TTS</a></li>
 <li class="toctree-l1"><a class="reference internal" href="ming_tts.html">Ming-Omni-TTS</a></li>
 <li class="toctree-l1"><a class="reference internal" href="moss_tts.html">MOSS-TTS</a></li>
@@ -271,6 +272,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../developer_reference/asr_bench.html">ASR benchmark runbook</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../developer_reference/omni_offline_bench.html">MiniCPM-o offline benchmark runbook</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../developer_reference/rl_admin_control.html">RL Admin Control</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../developer_reference/mlx.html">MLX Path</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../developer_reference/bump_version.html">Bumping the SGLang Pin</a></li>
 </ul>
 
@@ -771,12 +773,19 @@ also finalized at the configured <code class="docutils literal notranslate"><spa
 <span class="w">  </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"transcription.segment"</span><span class="p">,</span>
 <span class="w">  </span><span class="nt">"event_index"</span><span class="p">:</span><span class="w"> </span><span class="mi">7</span><span class="p">,</span>
 <span class="w">  </span><span class="nt">"segment_id"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"audio_start_ms"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"audio_end_ms"</span><span class="p">:</span><span class="w"> </span><span class="mi">2000</span><span class="p">,</span>
 <span class="w">  </span><span class="nt">"text"</span><span class="p">:</span><span class="w"> </span><span class="s2">"hello wor"</span><span class="p">,</span>
 <span class="w">  </span><span class="nt">"is_final"</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span>
 <span class="p">}</span>
 </pre></div>
 </div>
-<p>A later event for the same <code class="docutils literal notranslate"><span class="pre">segment_id</span></code> replaces this text. An event with
+<p>A later event for the same <code class="docutils literal notranslate"><span class="pre">segment_id</span></code> replaces this text. <code class="docutils literal notranslate"><span class="pre">audio_start_ms</span></code>
+and <code class="docutils literal notranslate"><span class="pre">audio_end_ms</span></code> are the span of input audio the text was decoded from.
+A partial can trail the audio already sent, since audio that arrives while it
+decodes is left to the next partial. <code class="docutils literal notranslate"><span class="pre">audio_start_ms</span></code> stays fixed for the
+segment, including segments opened by the 30 second boundary, which have no
+<code class="docutils literal notranslate"><span class="pre">input_audio_buffer.speech_started</span></code> event. An event with
 <code class="docutils literal notranslate"><span class="pre">is_final=true</span></code> is immutable. <code class="docutils literal notranslate"><span class="pre">transcription.completed</span></code> contains the joined
 text from all final segments.</p>
 <p>Append events are not idempotent. After a transport failure, reconnect and
