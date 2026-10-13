@@ -18,11 +18,18 @@ namespace {
 using qwen3_asr::AudioLayout;
 using qwen3_asr::TranscriptionOptions;
 
+// Note (Yucheng Hu): the worker clears MLX's buffer cache only when idle, and
+// back-to-back realtime refreshes of growing length rarely fit a cached buffer,
+// so without a cap the cache grows until the session ends.
+constexpr size_t kBufferCacheLimitBytes = size_t{1} << 30;
+
 class Qwen3ASRModel : public asr_service::ServedModel {
 public:
   Qwen3ASRModel(const std::filesystem::path &model_directory,
                 qwen3_asr::RealtimeSettings realtime)
-      : transcriber_(model_directory), realtime_(realtime) {}
+      : transcriber_(model_directory), realtime_(realtime) {
+    mlx::core::set_cache_limit(kBufferCacheLimitBytes);
+  }
 
   asr_service::Transcription
   Prepare(std::vector<float> samples,
