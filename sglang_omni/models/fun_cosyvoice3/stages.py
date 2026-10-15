@@ -1767,7 +1767,15 @@ class CosyVoice3Vocoder(BatchVocoderBase[FunCosyVoice3State, torch.Tensor]):
         # AR's. It waits once for what the default stream holds at this point.
         device = next(self.flow.parameters()).device
         if device.type == "cuda":
-            stream = torch.cuda.Stream(device=device)
+            # note (Yucheng Hu): study toggle for the priority profile; off by default.
+            stream_priority = int(
+                os.environ.get("SGLANG_OMNI_COSYVOICE3_VOCODER_STREAM_PRIORITY", "0")
+            )
+            stream = torch.cuda.Stream(device=device, priority=stream_priority)
+            logger.info(
+                f"Fun-CosyVoice3 vocoder stream priority {stream_priority} "
+                f"(device range {torch.cuda.Stream.priority_range()})"
+            )
             stream.wait_stream(torch.cuda.current_stream(device))
             self.stream_context: contextlib.AbstractContextManager[None] = (
                 torch.cuda.stream(stream)
