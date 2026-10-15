@@ -360,11 +360,13 @@ class FunCosyVoice3ModelRunner(ModelRunner):
         # note (Yucheng Hu): a pageable D2H on the default stream stalls other threads'
         # kernel launches while it waits, an event wait does not.
         self.stage_token_ids(result, token_ids)
+        with torch.cuda.nvtx.range(f"ar.ids_wait bs={len(requests)}"):
+            host_token_ids = self.resolve_host_token_ids(result).tolist()
         token_ids_cpu = self.redraw_repeated_tokens(
             result,
             forward_batch,
             requests,
-            self.resolve_host_token_ids(result).tolist(),
+            host_token_ids,
         )
         for idx, sched_req in enumerate(requests):
             token_id = int(token_ids_cpu[idx])

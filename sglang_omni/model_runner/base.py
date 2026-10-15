@@ -382,6 +382,19 @@ class ModelRunner(Generic[RequestDataInput]):
         )
 
     def execute(self, scheduler_output: SchedulerOutput) -> ModelRunnerOutput:
+        batch = scheduler_output.batch_data
+        if batch is None or batch.forward_mode is None:
+            mode = "none"
+        elif batch.forward_mode.is_extend():
+            mode = "prefill"
+        else:
+            mode = "decode"
+        with torch.cuda.nvtx.range(
+            f"ar.execute {mode} bs={len(scheduler_output.requests)}"
+        ):
+            return self.execute_inner(scheduler_output)
+
+    def execute_inner(self, scheduler_output: SchedulerOutput) -> ModelRunnerOutput:
         """Full synchronous pipeline: build → prepare → forward → post →
         sample → output.
 
@@ -440,6 +453,12 @@ class ModelRunner(Generic[RequestDataInput]):
         )
 
     def execute_launch(self, scheduler_output: SchedulerOutput) -> "PendingStep | None":
+        with torch.cuda.nvtx.range(f"ar.launch bs={len(scheduler_output.requests)}"):
+            return self.execute_launch_inner(scheduler_output)
+
+    def execute_launch_inner(
+        self, scheduler_output: SchedulerOutput
+    ) -> "PendingStep | None":
         """Enqueue a decode step's forward + on-GPU sample, call
         ``post_decode_launch`` to publish a model-specific resolve payload
         (returned as launch_buf), and record a device event right after
@@ -509,6 +528,13 @@ class ModelRunner(Generic[RequestDataInput]):
     def execute_resolve(
         self, pending: "PendingStep | None"
     ) -> ModelRunnerOutput | None:
+        rows = 0 if pending is None else len(pending.scheduler_output.requests)
+        with torch.cuda.nvtx.range(f"ar.resolve bs={rows}"):
+            return self.execute_resolve_inner(pending)
+
+    def execute_resolve_inner(
+        self, pending: "PendingStep | None"
+    ) -> ModelRunnerOutput | None:
         """Consume a launched decode step: wait on its event (non-blocking
         ``query()``, else ``synchronize()``), read its ``launch_buf`` (a device
         snapshot or pinned host staging) and run the per-request collect loop
@@ -523,7 +549,8 @@ class ModelRunner(Generic[RequestDataInput]):
         if pending.event.query():
             self.async_query_hit += 1
         else:
-            pending.event.synchronize()
+            with torch.cuda.nvtx.range("ar.event_wait"):
+                pending.event.synchronize()
             self.async_query_miss += 1
         # Skip reqs finished or retracted in a prior (lagged) step so _finalize
         # neither re-emits nor re-frees their KV (mirrors _resolve_and_process).

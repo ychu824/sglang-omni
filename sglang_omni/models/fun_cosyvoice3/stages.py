@@ -2118,35 +2118,39 @@ class CosyVoice3Vocoder(BatchVocoderBase[FunCosyVoice3State, torch.Tensor]):
         # note(ratish): hops run F0 finalized too. Only its look right frames
         # differ, and a hop's emitted frames end before them.
         f0_device = next(hift.f0_predictor.parameters()).device
-        f0 = hift.f0_predictor(
-            mel_history.to(device=f0_device, dtype=torch.float64), finalize=True
-        ).to(mel_history)
+        with torch.cuda.nvtx.range("voc.hift.f0"):
+            f0 = hift.f0_predictor(
+                mel_history.to(device=f0_device, dtype=torch.float64), finalize=True
+            ).to(mel_history)
         # note(ratish): source chunks aim at this group's decode frames, at least one
         # whole history; the source needs less memory per frame than the decode.
         source_rows = max(1, len(windows) * max_window_frames // max_history_frames)
-        for first in range(0, len(windows), source_rows):
-            excitation = hift.f0_upsamp(f0[first : first + source_rows, None])
-            excitation, _, _ = hift.m_source(excitation.transpose(1, 2))
-            excitation = excitation.transpose(1, 2)
-            for index in range(first, min(first + source_rows, len(windows))):
-                window = windows[index]
-                origin = origin_frames[index]
-                history_frames = history_frame_counts[index]
-                window_source[
-                    index,
-                    :,
-                    (window.start_frame - origin)
-                    * samples_per_frame : (history_frames - origin)
-                    * samples_per_frame,
-                ] = excitation[
-                    index - first,
-                    :,
-                    window.start_frame
-                    * samples_per_frame : history_frames
-                    * samples_per_frame,
-                ]
-        speech = hift.decode(x=window_mel, s=window_source, finalize=True)
-        speech = speech.detach().cpu()
+        with torch.cuda.nvtx.range("voc.hift.source"):
+            for first in range(0, len(windows), source_rows):
+                excitation = hift.f0_upsamp(f0[first : first + source_rows, None])
+                excitation, _, _ = hift.m_source(excitation.transpose(1, 2))
+                excitation = excitation.transpose(1, 2)
+                for index in range(first, min(first + source_rows, len(windows))):
+                    window = windows[index]
+                    origin = origin_frames[index]
+                    history_frames = history_frame_counts[index]
+                    window_source[
+                        index,
+                        :,
+                        (window.start_frame - origin)
+                        * samples_per_frame : (history_frames - origin)
+                        * samples_per_frame,
+                    ] = excitation[
+                        index - first,
+                        :,
+                        window.start_frame
+                        * samples_per_frame : history_frames
+                        * samples_per_frame,
+                    ]
+        with torch.cuda.nvtx.range("voc.hift.decode"):
+            speech = hift.decode(x=window_mel, s=window_source, finalize=True)
+        with torch.cuda.nvtx.range("voc.hift.d2h"):
+            speech = speech.detach().cpu()
         return [
             (
                 speech[

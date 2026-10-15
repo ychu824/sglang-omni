@@ -136,7 +136,7 @@ class FunCosyVoice3StreamingVocoderScheduler(
         )
 
     def pump_one_step(self) -> list[str] | None:
-        with self.vocoder.stream_context:
+        with self.vocoder.stream_context, torch.cuda.nvtx.range("voc.pump"):
             return super().pump_one_step()
 
     async def vocode_payload(self, payload: StagePayload) -> StagePayload:
@@ -447,6 +447,14 @@ class FunCosyVoice3StreamingVocoderScheduler(
         participants: list[tuple[str, CosyVoice3StreamState]],
         plan: NextDecode,
     ) -> dict[str, torch.Tensor]:
+        with torch.cuda.nvtx.range(f"voc.step plan={plan} rows={len(participants)}"):
+            return self.run_step_inner(participants, plan)
+
+    def run_step_inner(
+        self,
+        participants: list[tuple[str, CosyVoice3StreamState]],
+        plan: NextDecode,
+    ) -> dict[str, torch.Tensor]:
         assert plan != "wait"
         if plan == "fallback":
             request_id, _ = participants[0]
@@ -463,7 +471,8 @@ class FunCosyVoice3StreamingVocoderScheduler(
                 for _, state in participants
             ]
             logger.info(f"Fun-CosyVoice3 leftover Flow batch size={len(items)}")
-            mels = self.vocoder.leftover_batch(items)
+            with torch.cuda.nvtx.range("voc.flow leftover"):
+                mels = self.vocoder.leftover_batch(items)
             for (_, state), (delta, offset) in zip(
                 participants,
                 self.hift_step(participants, mels, is_final=True),
@@ -489,7 +498,8 @@ class FunCosyVoice3StreamingVocoderScheduler(
                 for _, state in participants
             ]
             logger.info(f"Fun-CosyVoice3 causal Flow batch size={len(items)}")
-            mels = self.hop_batch_with_prefix(participants, items)
+            with torch.cuda.nvtx.range("voc.flow hop"):
+                mels = self.hop_batch_with_prefix(participants, items)
             decoded: dict[str, torch.Tensor] = {}
             for (request_id, state), (delta, offset) in zip(
                 participants,
@@ -573,6 +583,18 @@ class FunCosyVoice3StreamingVocoderScheduler(
         return [mel for mel in mels if mel is not None]
 
     def hift_step(
+        self,
+        participants: list[tuple[str, CosyVoice3StreamState]],
+        mels: list[torch.Tensor],
+        *,
+        is_final: bool,
+    ) -> list[tuple[torch.Tensor, int]]:
+        with torch.cuda.nvtx.range(
+            f"voc.hift rows={len(participants)} final={is_final}"
+        ):
+            return self.hift_step_inner(participants, mels, is_final=is_final)
+
+    def hift_step_inner(
         self,
         participants: list[tuple[str, CosyVoice3StreamState]],
         mels: list[torch.Tensor],
