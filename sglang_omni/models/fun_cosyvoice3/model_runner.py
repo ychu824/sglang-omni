@@ -521,6 +521,9 @@ class FunCosyVoice3ModelRunner(ModelRunner):
             data.stream_prompt_sent = True
         else:
             pass
+        torch.cuda.nvtx.mark(
+            f"ar.emit rid={request_id[:8]} tokens={int(codes.shape[0])}"
+        )
         self.outbox.put(
             OutgoingMessage(
                 request_id=request_id,

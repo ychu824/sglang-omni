@@ -863,6 +863,11 @@ def prepare_cosyvoice3_request(
 
 
 def preprocess_cosyvoice3_payload(payload: StagePayload) -> StagePayload:
+    with torch.cuda.nvtx.range(f"prep.payload rid={payload.request_id[:8]}"):
+        return preprocess_cosyvoice3_payload_inner(payload)
+
+
+def preprocess_cosyvoice3_payload_inner(payload: StagePayload) -> StagePayload:
     with _PREPARED_REQUESTS_LOCK:
         context = _PREPROCESSING_CONTEXT
     if context is None:

@@ -2319,8 +2319,9 @@ class Stage:
 
     def on_profiler_start(self, msg: ProfilerStartMessage) -> None:
         run_id = msg.run_id
-        if os.environ.get("SGLANG_OMNI_NSYS_CAPTURE") == "1":
-            # note (Yucheng Hu): nsys --capture-range=cudaProfilerApi opens a capture here.
+        if os.environ.get("SGLANG_OMNI_NSYS_CAPTURE") == self.name:
+            # note (Yucheng Hu): opens an nsys cudaProfilerApi capture range; one stage
+            # per process does it, the stages share one process and one loop.
             torch.cuda.cudart().cudaProfilerStart()
         else:
             pass
@@ -2351,7 +2352,7 @@ class Stage:
 
     def on_profiler_stop(self, msg: ProfilerStopMessage) -> None:
         # run_id=None is a wildcard (stop whatever's active).
-        if os.environ.get("SGLANG_OMNI_NSYS_CAPTURE") == "1":
+        if os.environ.get("SGLANG_OMNI_NSYS_CAPTURE") == self.name:
             torch.cuda.cudart().cudaProfilerStop()
         else:
             pass

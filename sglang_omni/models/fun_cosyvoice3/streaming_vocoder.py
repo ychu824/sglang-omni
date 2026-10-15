@@ -447,7 +447,10 @@ class FunCosyVoice3StreamingVocoderScheduler(
         participants: list[tuple[str, CosyVoice3StreamState]],
         plan: NextDecode,
     ) -> dict[str, torch.Tensor]:
-        with torch.cuda.nvtx.range(f"voc.step plan={plan} rows={len(participants)}"):
+        ids = ",".join(request_id[:8] for request_id, _ in participants)
+        with torch.cuda.nvtx.range(
+            f"voc.step plan={plan} rows={len(participants)} ids={ids}"
+        ):
             return self.run_step_inner(participants, plan)
 
     def run_step_inner(
