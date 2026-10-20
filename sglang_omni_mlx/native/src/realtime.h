@@ -89,6 +89,11 @@ private:
     int decode_count = 0;
     std::string transcript;
     std::string last_text;
+    // The last result hit its token budget or ended in a token loop, so the
+    // next decode does not continue from it.
+    bool prefix_untrusted = false;
+    // Segment samples at the last refresh decoded without a prefix.
+    long last_full_refresh_samples = 0;
   };
 
   void Append(const nlohmann::json &audio);
@@ -100,7 +105,8 @@ private:
   std::vector<float> SegmentSamples(const Segment &segment,
                                     long end_sample) const;
   // Builds the request for a decode of segment and counts it.
-  TranscriptionOptions DecodeOptions(Segment &segment);
+  TranscriptionOptions DecodeOptions(Segment &segment, long segment_samples,
+                                     bool is_final);
   Transcription Decode(std::vector<float> samples,
                        TranscriptionOptions options) const;
   void ApplyResult(Segment &segment, const TranscriptionResult &result);

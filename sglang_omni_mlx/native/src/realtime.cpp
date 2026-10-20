@@ -15,6 +15,9 @@ namespace {
 // shown text minus its last tokens, which may still change.
 constexpr int kPrefixAfterRefreshCount = 2;
 constexpr int kPrefixRollbackTokenCount = 5;
+// Note (Yucheng Hu): a refresh that continues from shown text keeps what the
+// decodes before speech made up, so one every 5 s of audio starts over.
+constexpr long kFullRefreshIntervalSamples = 5L * kSampleRate;
 constexpr float kSilentPeak = 1e-3f;
 constexpr float kPcm16FullScale = 32768.0f;
 
@@ -299,17 +302,29 @@ std::vector<float> RealtimeSession::SegmentSamples(const Segment &segment,
   return std::vector<float>(samples_.begin() + begin, samples_.begin() + end);
 }
 
-TranscriptionOptions RealtimeSession::DecodeOptions(Segment &segment) {
+TranscriptionOptions RealtimeSession::DecodeOptions(Segment &segment,
+                                                    long segment_samples,
+                                                    bool is_final) {
   TranscriptionOptions options;
   options.language = segment.language;
+  // Note (Yucheng Hu): audio before speech can decode into a token loop, which
+  // would otherwise fill every decode's token budget.
+  options.stop_on_token_loop = true;
+  // Note (Yucheng Hu): a final decodes its whole segment, so text a refresh
+  // made up is not committed.
   const bool use_prefix = segment.decode_count >= kPrefixAfterRefreshCount &&
                           !segment.transcript.empty() &&
-                          segment.language.has_value();
+                          segment.language.has_value() &&
+                          !segment.prefix_untrusted && !is_final &&
+                          segment_samples - segment.last_full_refresh_samples <
+                              kFullRefreshIntervalSamples;
   if (use_prefix) {
     auto [ids, text] = transcriber_.RetainedPrefix(segment.transcript,
                                                    kPrefixRollbackTokenCount);
     options.prefix_token_ids = std::move(ids);
     options.prefix_text = std::move(text);
+  } else if (!is_final) {
+    segment.last_full_refresh_samples = segment_samples;
   } else {
   }
   segment.decode_count += 1;
@@ -331,6 +346,10 @@ void RealtimeSession::ApplyResult(Segment &segment,
   } else {
   }
   segment.transcript = result.text;
+  segment.prefix_untrusted =
+      result.finish_reason == FinishReason::kLength ||
+      (!result.text.empty() &&
+       IsTokenLoop(transcriber_.RetainedPrefix(result.text, 0).first));
 }
 
 void RealtimeSession::MaybeStartRefresh() {
@@ -360,7 +379,7 @@ void RealtimeSession::MaybeStartRefresh() {
       return;
     } else {
     }
-    options = DecodeOptions(segment);
+    options = DecodeOptions(segment, static_cast<long>(samples.size()), false);
     segment_id = segment.segment_id;
     refreshing_ = true;
   }
@@ -438,7 +457,8 @@ void RealtimeSession::FinalizeThrough(long end_sample) {
       TranscriptionOptions options;
       {
         std::lock_guard<std::mutex> lock(mutex_);
-        options = DecodeOptions(segment);
+        options =
+            DecodeOptions(segment, static_cast<long>(samples.size()), true);
       }
       try {
         const TranscriptionResult result = worker_.Transcribe(
