@@ -10,6 +10,7 @@ import uuid
 from collections.abc import AsyncIterator
 from contextvars import ContextVar
 
+from sglang_omni.admission import QueueFullError
 from sglang_omni.profiler.duplex_events import (
     SessionUnitReadyObservation,
     capture_session_unit_ready,
@@ -44,6 +45,7 @@ from sglang_omni.serve.realtime.types import (
     InteractionAdapter,
     ProtocolError,
     RuntimeLimits,
+    SessionOpenTimeoutError,
     Unit,
     failure_code,
 )
@@ -194,17 +196,28 @@ class SessionRuntime:
                         self.limits.cleanup_timeout_s,
                     )
                 except Exception as exc:
-                    logger.exception(
-                        f"Realtime session {self.session_id} admission failed"
-                    )
                     try:
                         await asyncio.wait_for(
                             adapter.close(), self.limits.cleanup_timeout_s
                         )
-                    except Exception:
+                    except Exception as cleanup_error:
                         self.adapter = adapter
-                        raise RuntimeError("admission cleanup failed") from exc
-                    raise ProtocolError("admission_rejected", str(exc)) from exc
+                        raise RuntimeError(
+                            "admission cleanup failed"
+                        ) from cleanup_error
+                    if (
+                        isinstance(exc, ProtocolError)
+                        or failure_code(exc) != "internal"
+                    ):
+                        raise
+                    elif QueueFullError.matches(exc):
+                        raise ProtocolError("admission_rejected", str(exc)) from exc
+                    elif isinstance(exc, (TimeoutError, asyncio.TimeoutError)):
+                        raise SessionOpenTimeoutError(
+                            str(exc) or "session open timed out"
+                        ) from exc
+                    else:
+                        raise
                 self.adapter = adapter
                 if self.close_task is not None:
                     # Note (Junnan Li): Admission cleanup belongs to the closing owner; do not publish OPEN here.
