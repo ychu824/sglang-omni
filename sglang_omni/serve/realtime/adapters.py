@@ -7,6 +7,7 @@ import logging
 from collections.abc import Iterable
 from typing import Protocol
 
+from sglang_omni.admission import ContextExhaustedError
 from sglang_omni.client.client import Client
 from sglang_omni.proto.request import OmniRequest
 from sglang_omni.proto.session import (
@@ -142,7 +143,10 @@ class CoordinatorAdapter(InteractionAdapter):
             else:
                 pass
         except Exception as exc:
-            code = failure_code(exc)
+            if ContextExhaustedError.matches(exc):
+                code = ContextExhaustedError.CODE
+            else:
+                code = failure_code(exc)
             if code == "internal":
                 logger.exception("Realtime session output reader failed")
             else:
