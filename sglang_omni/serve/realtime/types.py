@@ -1,4 +1,4 @@
-"""Realtime unit identity, adapter contracts and resource configuration."""
+"""Realtime unit identity, adapter contracts, session failures and resource configuration."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from collections.abc import Awaitable
 from dataclasses import asdict, dataclass
 from typing import Protocol, get_args
 
+from sglang_omni.pipeline.types import SessionIdleTimeoutError, SessionOutputBudgetError
 from sglang_omni.profiler.duplex_events import SessionUnitReadyObservation
 from sglang_omni.serve.realtime.control import ControlEvent
 from sglang_omni.serve.realtime.output import OutputEvent
@@ -30,6 +31,52 @@ class ProtocolError(ValueError):
         self.code = code
         self.param = param
         super().__init__(message)
+
+
+class ContextLimitError(RuntimeError):
+    """A single response's text outgrew max_history_chars."""
+
+    CODE = "context_limit"
+    MESSAGE = "response text context limit"
+
+    def __init__(self) -> None:
+        super().__init__(self.MESSAGE)
+
+
+class OutputBudgetError(RuntimeError):
+    """Session output outgrew its bounded buffer."""
+
+    CODE = "output_budget_exhausted"
+    MESSAGE = "outbound event budget exhausted"
+
+    def __init__(self, message: str = MESSAGE) -> None:
+        super().__init__(message)
+
+
+class SessionOpenTimeoutError(TimeoutError):
+    """The backend did not finish opening a realtime session in time."""
+
+    CODE = "session_open_timeout"
+
+    def __init__(self, open_timeout_s: float) -> None:
+        super().__init__(f"session open exceeded {open_timeout_s:g} s")
+
+
+def failure_code(exc: Exception) -> str:
+    """Client-facing error code of a server-side session failure."""
+    if isinstance(
+        exc,
+        (
+            ContextLimitError,
+            OutputBudgetError,
+            SessionIdleTimeoutError,
+            SessionOpenTimeoutError,
+            SessionOutputBudgetError,
+        ),
+    ):
+        return exc.CODE
+    else:
+        return "internal"
 
 
 def samples_to_ms(sample_count: int, sample_rate_hz: int) -> float:

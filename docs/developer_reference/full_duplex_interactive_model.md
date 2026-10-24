@@ -44,6 +44,8 @@ Speech settings also accept dotted CLI flags, such as `--speech.dtype float16 --
 
 A session holds at most 8192 tokens of history, which is the model's trained context length. When that fills, the server sends `context_exhausted` and closes the session.
 
+A session that receives no audio for 300 seconds is closed with `session_idle_timeout`. A session whose pending server events outgrow the server's output buffers is closed with `output_budget_exhausted`; this happens when the client stops reading events, or sends audio much faster than real time. A single response whose transcript outgrows `max_history_chars` is closed with `context_limit`.
+
 The full-duplex server is ready when this returns JSON containing `"native_full_duplex":true`:
 
 ```bash
@@ -594,6 +596,8 @@ Each rule is followed by the error it raises.
 - A node whose service does not answer its probe: `openai_transcription`, `openai_chat` and `openai_speech` request `<base_url>/models`, `openai_chat` then streams one token sampled with the node's settings, `realtime_transcription` requests `/v1/models` on the `http` form of its `base_url`, a forced `alignment` requests `<alignment_url>/health` and then aligns one second of silence, and an `alignment` with `heard_asr_url` requests `<heard_asr_url>/models` — `cannot reach <url>: ...` or `<url> answered <status>`, or the error of the chat token's completion, and the server stops.
 
 ### Rejected in a realtime session
+
+During initial session opening, only a capacity rejection is reported as `admission_rejected` with `sglang.fatal: false`; the client may retry `session.update` on the same WebSocket before sending audio. If opening exceeds its deadline, the server sends fatal `session_open_timeout` and closes the session. This differs from `session_update_timeout`, when the session never reached OPEN before its initial-update deadline, and `session_idle_timeout`, when an open session receives no input. Other initialization failures close the session with their known error code, or `internal` when no specific code is available. Configuration negotiation errors below retain their existing request-error behavior.
 
 - A sampling parameter other than `temperature` and `max_new_tokens_per_unit` — `unsupported sampling parameters: ...`.
 - `sglang.sampling` or another non-hot field changed after the first `session.update` — `session field is frozen`.

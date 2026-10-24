@@ -17,6 +17,7 @@ import msgpack
 from sglang_omni.admission import QueueFullError
 from sglang_omni.pipeline.replicas import assign_replica_bindings
 from sglang_omni.pipeline.session_delivery import DeliveryPacer
+from sglang_omni.pipeline.types import SessionIdleTimeoutError, SessionOutputBudgetError
 from sglang_omni.profiler.duplex_events import (
     emit_session_output_event,
     emit_session_unit_event,
@@ -547,7 +548,7 @@ class CoordinatorSessions:
             len(session.outputs) >= session.limits.max_output_chunks
             or session.output_bytes + size > session.limits.max_output_bytes
         ):
-            raise QueueFullError()
+            raise SessionOutputBudgetError()
         else:
             pass
         if kind == "data":
@@ -572,10 +573,15 @@ class CoordinatorSessions:
                     and session.pending[0].chunk.seq >= session.control_barriers[0][0]
                 ):
                     session.wake.clear()
-                    await asyncio.wait_for(
-                        session.wake.wait(), session.limits.idle_timeout_s
+                    wake_task = asyncio.create_task(session.wake.wait())
+                    done, _ = await asyncio.wait(
+                        {wake_task}, timeout=session.limits.idle_timeout_s
                     )
-                    continue
+                    if not done:
+                        wake_task.cancel()
+                        raise SessionIdleTimeoutError(session.limits.idle_timeout_s)
+                    else:
+                        continue
                 else:
                     pass
                 pending_chunk = session.pending.popleft()

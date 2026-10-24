@@ -101,7 +101,3 @@ OutputEvent = (
     | SpeechStopped
     | InputTranscription
 )
-
-
-class ContextLimitError(RuntimeError):
-    code = "context_limit"
