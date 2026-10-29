@@ -4,8 +4,10 @@
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <optional>
 #include <set>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 namespace qwen3_asr {
@@ -15,6 +17,33 @@ namespace mx = mlx::core;
 namespace {
 
 constexpr float kLayerNormEps = 1e-5f;
+// Note (Yucheng Hu): audio longer than this many chunks is encoded in groups
+// evaluated as they go, so the large activations are bounded by the group size
+// instead of the audio length. Shorter audio keeps one lazy graph: forcing the
+// grouped path there measured about 25 ms slower (M2 Pro, 10-60 s).
+constexpr int kMinimumConvChunksPerGroup = 64;
+// Note (Yucheng Hu): smaller groups would change the output bits, since MLX
+// sums a matmul with split-K while K >= 3 * max(M, N) on NAX GPUs: conv_out
+// (13 rows per chunk, K = 7680) up to 7680 / (3 * 13) = 196 chunks, and the
+// attention fc2 (104 rows per window, K <= 4096) up to 13 windows. Older GPUs
+// stop splitting at smaller sizes, so these minimums also run the ungrouped
+// encoder's kernels there.
+constexpr int kMinimumConvOutChunksPerGroup = 197;
+constexpr int kMinimumWindowsPerGroup = 32;
+
+// Note (Yucheng Hu): as many groups as keep the minimum in each, split evenly,
+// so a group holds at least the minimum and fewer than twice it, never a short
+// remainder; fewer members than the minimum make one group.
+std::vector<std::pair<int, int>> GroupBounds(int member_count,
+                                             int minimum_group_size) {
+  const int group_count = std::max(1, member_count / minimum_group_size);
+  std::vector<std::pair<int, int>> bounds;
+  for (int group = 0; group < group_count; ++group) {
+    bounds.emplace_back(group * member_count / group_count,
+                        (group + 1) * member_count / group_count);
+  }
+  return bounds;
+}
 
 mx::array SinusoidalPositions(int length, int channels) {
   const double timescale_step = std::log(10000.0) / (channels / 2 - 1);
@@ -99,45 +128,79 @@ mx::array Qwen3ASR::EncodeAudio(const mx::array &mel,
   }
   const int longest_chunk =
       *std::max_element(chunk_lengths.begin(), chunk_lengths.end());
-  std::vector<mx::array> padded_chunks;
-  for (size_t i = 0; i < chunk_starts.size(); ++i) {
-    const mx::array chunk =
-        mx::slice(mel, {0, chunk_starts[i]},
-                  {mel_bins, chunk_starts[i] + chunk_lengths[i]});
-    padded_chunks.push_back(
-        mx::pad(chunk, {{0, 0}, {0, longest_chunk - chunk_lengths[i]}}));
-  }
-  mx::array x = mx::expand_dims(mx::stack(padded_chunks), -1);
-  x = omni_common::Gelu(Conv2d(x, "audio_tower.conv2d1"));
-  x = omni_common::Gelu(Conv2d(x, "audio_tower.conv2d2"));
-  x = omni_common::Gelu(Conv2d(x, "audio_tower.conv2d3"));
-  const int chunk_count = x.shape(0);
-  const int frequency_bins = x.shape(1);
-  const int conv_frames = x.shape(2);
-  const int channels = x.shape(3);
-  x = checkpoint_.Linear(
-      mx::reshape(mx::transpose(x, {0, 2, 3, 1}),
-                  {chunk_count, conv_frames, channels * frequency_bins}),
-      "audio_tower.conv_out");
-  x = mx::add(
-      x, mx::expand_dims(SinusoidalPositions(conv_frames, audio_.d_model), 0));
-
+  const int chunk_count = static_cast<int>(chunk_starts.size());
+  const bool is_long_audio = chunk_count > kMinimumConvChunksPerGroup;
   std::vector<int> credited_lengths;
   for (const int length : chunk_lengths) {
     credited_lengths.push_back(layout == AudioLayout::kReference
                                    ? ConvOutputFrames(length)
                                    : SwiftTokenCount(length));
   }
-  // Note (Jiaxin Deng): the Swift port credits each chunk by its own length
-  // formula and keeps that many rows of the padded conv output.
-  std::vector<mx::array> kept_rows;
-  for (int i = 0; i < chunk_count; ++i) {
-    const int kept = std::min(credited_lengths[i], conv_frames);
-    kept_rows.push_back(
-        mx::reshape(mx::slice(x, {i, 0, 0}, {i + 1, kept, x.shape(2)}),
-                    {kept, x.shape(2)}));
+  if (GroupBounds(chunk_count, kMinimumConvChunksPerGroup).size() > 1) {
+    // Note (Yucheng Hu): the STFT temporaries are freed before the first conv
+    // group runs, instead of being held alongside it.
+    mx::eval(mel);
+  } else {
   }
-  mx::array hidden_states = mx::concatenate(kept_rows, 0);
+  // Note (Yucheng Hu): the conv activations are the largest tensors, so the
+  // convs run one group of chunks at a time; conv_out runs on larger groups of
+  // the flattened conv output.
+  std::vector<mx::array> kept_row_groups;
+  const std::vector<std::pair<int, int>> conv_out_groups =
+      GroupBounds(chunk_count, kMinimumConvOutChunksPerGroup);
+  for (const auto &[conv_out_start, conv_out_end] : conv_out_groups) {
+    const std::vector<std::pair<int, int>> conv_groups =
+        GroupBounds(conv_out_end - conv_out_start, kMinimumConvChunksPerGroup);
+    std::vector<mx::array> flattened_groups;
+    int conv_frames = 0;
+    for (const auto &[group_start, group_end] : conv_groups) {
+      std::vector<mx::array> padded_chunks;
+      for (int i = conv_out_start + group_start; i < conv_out_start + group_end;
+           ++i) {
+        const mx::array chunk =
+            mx::slice(mel, {0, chunk_starts[i]},
+                      {mel_bins, chunk_starts[i] + chunk_lengths[i]});
+        padded_chunks.push_back(
+            mx::pad(chunk, {{0, 0}, {0, longest_chunk - chunk_lengths[i]}}));
+      }
+      mx::array x = mx::expand_dims(mx::stack(padded_chunks), -1);
+      x = omni_common::Gelu(Conv2d(x, "audio_tower.conv2d1"));
+      x = omni_common::Gelu(Conv2d(x, "audio_tower.conv2d2"));
+      x = omni_common::Gelu(Conv2d(x, "audio_tower.conv2d3"));
+      const int frequency_bins = x.shape(1);
+      conv_frames = x.shape(2);
+      const int channels = x.shape(3);
+      flattened_groups.push_back(mx::reshape(
+          mx::transpose(x, {0, 2, 3, 1}),
+          {group_end - group_start, conv_frames, channels * frequency_bins}));
+      if (conv_groups.size() > 1) {
+        mx::eval(flattened_groups.back());
+      } else {
+      }
+    }
+    mx::array x =
+        checkpoint_.Linear(mx::concatenate(std::move(flattened_groups), 0),
+                           "audio_tower.conv_out");
+    x = mx::add(x, mx::expand_dims(
+                       SinusoidalPositions(conv_frames, audio_.d_model), 0));
+
+    // Note (Jiaxin Deng): the Swift port credits each chunk by its own length
+    // formula and keeps that many rows of the padded conv output.
+    std::vector<mx::array> kept_rows;
+    for (int i = 0; i < conv_out_end - conv_out_start; ++i) {
+      const int kept =
+          std::min(credited_lengths[conv_out_start + i], conv_frames);
+      kept_rows.push_back(
+          mx::reshape(mx::slice(x, {i, 0, 0}, {i + 1, kept, x.shape(2)}),
+                      {kept, x.shape(2)}));
+    }
+    kept_row_groups.push_back(mx::concatenate(kept_rows, 0));
+    if (conv_out_groups.size() > 1) {
+      mx::eval(kept_row_groups.back());
+    } else {
+    }
+  }
+  mx::array hidden_states = mx::concatenate(std::move(kept_row_groups), 0);
 
   // Note (Jiaxin Deng): attention stays within windows of chunks, equal-length
   // windows batched together, as in the Swift encoder.
@@ -172,27 +235,45 @@ mx::array Qwen3ASR::EncodeAudio(const mx::array &mel,
   for (const auto &[start, end] : window_bounds)
     lengths.insert(end - start);
   std::map<size_t, mx::array> encoded_windows;
+  std::optional<mx::array> previous_layer_output;
   for (const int length : lengths) {
     std::vector<size_t> same_length;
-    std::vector<mx::array> rows;
     for (size_t index = 0; index < window_bounds.size(); ++index) {
       const auto &[start, end] = window_bounds[index];
       if (end - start == length) {
         same_length.push_back(index);
-        rows.push_back(mx::slice(hidden_states, {start, 0}, {end, width}));
       } else {
       }
     }
-    mx::array batch = mx::stack(rows);
-    for (int layer = 0; layer < audio_.encoder_layers; ++layer) {
-      batch = AudioEncoderLayer(batch, layer);
-    }
-    for (size_t row = 0; row < same_length.size(); ++row) {
-      encoded_windows.insert_or_assign(
-          same_length[row],
-          mx::reshape(mx::slice(batch, {static_cast<int>(row), 0, 0},
-                                {static_cast<int>(row) + 1, length, width}),
-                      {length, width}));
+    for (const auto &[group_start, group_end] : GroupBounds(
+             static_cast<int>(same_length.size()), kMinimumWindowsPerGroup)) {
+      std::vector<mx::array> rows;
+      for (int i = group_start; i < group_end; ++i) {
+        const auto &[start, end] = window_bounds[same_length[i]];
+        rows.push_back(mx::slice(hidden_states, {start, 0}, {end, width}));
+      }
+      mx::array batch = mx::stack(rows);
+      for (int layer = 0; layer < audio_.encoder_layers; ++layer) {
+        batch = AudioEncoderLayer(batch, layer);
+        if (is_long_audio) {
+          // Note (Yucheng Hu): each layer is queued before waiting on the one
+          // before it, so the GPU never idles on a sync while at most two
+          // layers' temporaries are alive.
+          mx::async_eval(batch);
+          if (previous_layer_output.has_value()) {
+            previous_layer_output->wait();
+          } else {
+          }
+          previous_layer_output = batch;
+        } else {
+        }
+      }
+      for (int row = 0; row < group_end - group_start; ++row) {
+        encoded_windows.insert_or_assign(
+            same_length[group_start + row],
+            mx::reshape(mx::slice(batch, {row, 0, 0}, {row + 1, length, width}),
+                        {length, width}));
+      }
     }
   }
   std::vector<mx::array> ordered;
