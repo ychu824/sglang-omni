@@ -121,8 +121,24 @@ mx::array Qwen3Decoder::Layer(const mx::array &x, int layer,
 mx::array Qwen3Decoder::Forward(const mx::array &embeddings,
                                 std::vector<KVCache> &caches) const {
   mx::array hidden = embeddings;
+  // Note (Yucheng Hu): MLX keeps every temporary of a command buffer until
+  // the GPU finishes it, so one lazy graph over all layers of a prefill holds
+  // each layer's activations at once. Queue each layer before waiting on the
+  // one before it: at most two layers' temporaries are alive and the GPU never
+  // idles on a sync. Single-token steps keep the caller's cross-step pipeline.
+  const bool is_prefill = embeddings.shape(1) > 1;
+  std::optional<mx::array> previous_layer_output;
   for (int layer = 0; layer < config_.num_hidden_layers; ++layer) {
     hidden = Layer(hidden, layer, caches[layer]);
+    if (is_prefill) {
+      mx::async_eval(hidden);
+      if (previous_layer_output.has_value()) {
+        previous_layer_output->wait();
+      } else {
+      }
+      previous_layer_output = hidden;
+    } else {
+    }
   }
   return hidden;
 }
