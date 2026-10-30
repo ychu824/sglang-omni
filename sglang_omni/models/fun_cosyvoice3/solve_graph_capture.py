@@ -49,8 +49,10 @@ class SolveGraphCapture:
         *,
         device: torch.device,
         autocast_dtype: torch.dtype | None,
+        should_reduce_bf16_gemms_in_float32: bool,
     ) -> None:
         self.backend = backend
+        self.should_reduce_bf16_gemms_in_float32 = should_reduce_bf16_gemms_in_float32
         self.device = device
         self.device_module = torch.get_device_module(device)
         self.autocast_dtype = autocast_dtype
@@ -77,33 +79,50 @@ class SolveGraphCapture:
     def capture(
         self, solve: GraphSolve, *, autocast: bool = True
     ) -> tuple[ReplayableGraph, torch.Tensor]:
-        """solve warmed on the capture stream, then captured into the shared pool, under
-        the Flow's autocast or, for HiFT's float32 decode, none. Returns the graph and
-        the output its replays write."""
-        current_stream = self.device_module.current_stream(self.device)
-        self.stream.wait_stream(current_stream)
-        with (
-            self.device_module.stream(self.stream),
-            torch.autocast(
-                device_type=self.device.type,
-                dtype=self.autocast_dtype,
-                enabled=autocast,
-            ),
-        ):
-            for _ in range(CAPTURE_WARMUP_RUNS):
-                solve()
-        current_stream.wait_stream(self.stream)
-        self.device_module.synchronize(self.device)
-        with (
-            self.backend.capture(
-                pool=self.pool, stream=self.stream, thread_local_errors=True
-            ) as graph,
-            torch.autocast(
-                device_type=self.device.type,
-                dtype=self.autocast_dtype,
-                enabled=autocast,
-            ),
-        ):
-            output = solve()
-        self.device_module.synchronize(self.device)
+        """solve warmed and captured into the shared pool on the capture stream, under
+        the Flow's autocast (bf16 GEMMs reduced in float32 if asked) or, for HiFT's
+        float32 decode, none. Returns the graph and the output its replays write."""
+        matmul = torch.backends.cuda.matmul
+        # note (Yucheng Hu): the flag is process-wide; the vocoder captures while it is built, before any scheduler thread runs.
+        should_disallow_bf16_reduced_precision_reduction = (
+            autocast
+            and self.should_reduce_bf16_gemms_in_float32
+            and matmul.allow_bf16_reduced_precision_reduction
+        )
+        if should_disallow_bf16_reduced_precision_reduction:
+            matmul.allow_bf16_reduced_precision_reduction = False
+        else:
+            pass
+        try:
+            current_stream = self.device_module.current_stream(self.device)
+            self.stream.wait_stream(current_stream)
+            with (
+                self.device_module.stream(self.stream),
+                torch.autocast(
+                    device_type=self.device.type,
+                    dtype=self.autocast_dtype,
+                    enabled=autocast,
+                ),
+            ):
+                for _ in range(CAPTURE_WARMUP_RUNS):
+                    solve()
+            current_stream.wait_stream(self.stream)
+            self.device_module.synchronize(self.device)
+            with (
+                self.backend.capture(
+                    pool=self.pool, stream=self.stream, thread_local_errors=True
+                ) as graph,
+                torch.autocast(
+                    device_type=self.device.type,
+                    dtype=self.autocast_dtype,
+                    enabled=autocast,
+                ),
+            ):
+                output = solve()
+            self.device_module.synchronize(self.device)
+        finally:
+            if should_disallow_bf16_reduced_precision_reduction:
+                matmul.allow_bf16_reduced_precision_reduction = True
+            else:
+                pass
         return graph, output

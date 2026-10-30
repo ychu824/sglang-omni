@@ -22,14 +22,14 @@ from sglang.srt.utils.common import is_pin_memory_available
 
 from sglang_omni.models.fun_cosyvoice3.packed_dit import (
     CONV_CONTEXT_FRAMES,
-    FA3_PAGE_SIZE,
+    FLASH_ATTENTION_PAGE_SIZE,
     PACKED_INDUCTOR_OPTIONS,
     PackedDiT,
     euler_step_times,
     modulate_block,
     modulate_final,
-    packed_fa3,
-    ragged_fa3,
+    packed_flash_attention,
+    ragged_flash_attention,
     rotate_in_place,
     rotated,
 )
@@ -77,7 +77,12 @@ class PrefixKVPool:
     ) -> None:
         block_count = max(int(capacity_frames) // BLOCK_FRAMES, 0)
         self.padding_block = block_count
-        shape = ((block_count + 1) * BLOCK_FRAMES, FA3_PAGE_SIZE, head_num, head_dim)
+        shape = (
+            (block_count + 1) * BLOCK_FRAMES,
+            FLASH_ATTENTION_PAGE_SIZE,
+            head_num,
+            head_dim,
+        )
         # Note (Jiaxin Deng): separate storages, not views of one slab: the
         # compiled hop mutates them in place only when its inputs don't alias.
         self.keys = [
@@ -374,14 +379,14 @@ class PrefixRowAttention:
     ) -> torch.Tensor:
         # Note (Jiaxin Deng): head_num and head_dim come from the module so the
         # dynamic graph keeps them constant and the reshapes vectorize.
-        page_shape = (-1, FA3_PAGE_SIZE, head_num, head_dim)
+        page_shape = (-1, FLASH_ATTENTION_PAGE_SIZE, head_num, head_dim)
         key_pool.index_copy_(0, self.write_index, key[0].reshape(page_shape))
         value_pool.index_copy_(0, self.write_index, value[0].reshape(page_shape))
         if torch.compiler.is_compiling():
-            fa3 = packed_fa3
+            flash_attention = packed_flash_attention
         else:
-            fa3 = ragged_fa3
-        out = fa3(
+            flash_attention = ragged_flash_attention
+        out = flash_attention(
             query[0].reshape(-1, head_num, head_dim),
             key_pool,
             value_pool,

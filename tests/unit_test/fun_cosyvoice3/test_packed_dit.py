@@ -9,6 +9,7 @@ import pytest
 import torch
 import torch.nn.functional as F
 
+from sglang_omni.models.fun_cosyvoice3 import packed_dit
 from sglang_omni.models.fun_cosyvoice3.causal_conv import (
     GROUP_CONV_KERNEL_CHANNELS,
     FusedConvPositionEmbedding,
@@ -28,6 +29,7 @@ from sglang_omni.models.fun_cosyvoice3.packed_dit import (
     rotated,
     scatter_rows,
     solve_flow_euler_packed,
+    supports_ragged_attention,
 )
 from sglang_omni.models.fun_cosyvoice3.stages import solve_flow_euler
 
@@ -316,6 +318,103 @@ def test_packed_solve_matches_the_padded_solve_per_row(streaming: bool) -> None:
         torch.testing.assert_close(actual, reference, rtol=1e-9, atol=1e-9)
 
 
+@pytest.mark.parametrize(
+    ("capability", "is_fa4_importable", "expected_version"),
+    [
+        ((9, 0), True, 3),
+        ((8, 9), True, 3),
+        ((10, 0), True, None),
+        ((12, 0), True, 4),
+        ((12, 0), False, None),
+    ],
+)
+def test_the_ragged_read_takes_fa4_only_on_compute_capability_12_without_fa3(
+    monkeypatch: pytest.MonkeyPatch,
+    capability: tuple[int, int],
+    is_fa4_importable: bool,
+    expected_version: int | None,
+) -> None:
+    """FA3 devices keep FA3, and compute capability 10 keeps the padded read until FA4 is validated there."""
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda device: capability)
+    monkeypatch.setattr(
+        packed_dit, "_is_fa3_supported", lambda: capability[0] in (8, 9)
+    )
+    monkeypatch.setattr(
+        packed_dit, "is_flash_attention_v4_available", lambda: is_fa4_importable
+    )
+    packed_dit.flash_attention_version.cache_clear()
+    try:
+        cuda = torch.device("cuda")
+        assert packed_dit.flash_attention_version(cuda) == expected_version
+        assert packed_dit.supports_ragged_attention(cuda) is (
+            expected_version is not None
+        )
+        assert packed_dit.flash_attention_version(CPU) is None
+    finally:
+        packed_dit.flash_attention_version.cache_clear()
+
+
+@pytest.mark.parametrize(
+    ("version", "expected_calls"),
+    [
+        (3, [("kvcache", {"num_splits": 0}), ("varlen", {})]),
+        (
+            4,
+            [
+                ("kvcache", {"num_splits": 1, "ver": 4}),
+                ("varlen", {"num_splits": 1, "ver": 4}),
+            ],
+        ),
+    ],
+)
+def test_the_ragged_ops_keep_their_fa3_calls_and_run_fa4_on_one_split(
+    monkeypatch: pytest.MonkeyPatch,
+    version: int,
+    expected_calls: list[tuple[str, dict[str, int]]],
+) -> None:
+    """FA3 keeps the caller's split count and passes no version; FA4 goes through the same SGLang dispatcher with one split."""
+    calls: list[tuple[str, dict[str, int]]] = []
+
+    def record_kvcache(**kwargs: torch.Tensor | int | bool) -> torch.Tensor:
+        calls.append(
+            (
+                "kvcache",
+                {key: kwargs[key] for key in ("num_splits", "ver") if key in kwargs},
+            )
+        )
+        return kwargs["q"]
+
+    def record_varlen(**kwargs: torch.Tensor | int | bool) -> torch.Tensor:
+        calls.append(
+            (
+                "varlen",
+                {key: kwargs[key] for key in ("num_splits", "ver") if key in kwargs},
+            )
+        )
+        return kwargs["q"]
+
+    monkeypatch.setattr(packed_dit, "flash_attention_version", lambda device: version)
+    monkeypatch.setattr(packed_dit, "flash_attn_with_kvcache", record_kvcache)
+    monkeypatch.setattr(packed_dit, "flash_attn_varlen_func", record_varlen)
+    q = torch.zeros(4, 2, 8)
+    pages = torch.zeros(4, 1, 2, 8)
+    segment_starts = torch.tensor([0, 4], dtype=torch.int32)
+
+    packed_dit.ragged_flash_attention(
+        q,
+        pages,
+        pages,
+        segment_starts[1:],
+        torch.arange(4, dtype=torch.int32)[None],
+        segment_starts,
+        4,
+    )
+    packed_dit.whole_row_flash_attention(q, q, q, segment_starts, 4)
+
+    assert calls == expected_calls
+
+
 def test_packed_compile_requires_ragged_half_precision(monkeypatch) -> None:
     estimator = PackedDiT(tiny_dit(), device=CPU)
     compile_options: list[dict[str, object]] = []
@@ -401,11 +500,9 @@ def test_rows_packed_beside_an_empty_and_a_trailing_row_are_unchanged(
 def test_the_ragged_read_matches_the_padded_read(
     chunk_size: int | None, max_frames_scale: int
 ) -> None:
-    from sglang.kernels.ops.attention.flash_attention_v3 import _is_fa3_supported
-
     device = torch.device("cuda")
-    if not _is_fa3_supported():
-        pytest.skip("FA3 is unavailable on this device")
+    if not supports_ragged_attention(device):
+        pytest.skip("ragged attention is unavailable on this device")
     torch.manual_seed(2)
     heads = 2
     head_dim = 64
