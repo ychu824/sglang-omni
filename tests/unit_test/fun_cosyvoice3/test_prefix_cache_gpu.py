@@ -47,6 +47,15 @@ HEADS, HEAD_DIM, LAYERS = 4, 64, 3
 COMPILED_OVER_EAGER_ERROR = 1.1
 
 
+def skip_where_gemms_vary_with_row_count() -> None:
+    """The bitwise comparisons solve the same rows inside different row counts, which
+    cuBLAS's bf16 GEMMs on compute capability 12 round differently."""
+    if torch.cuda.get_device_capability()[0] == 12:
+        pytest.skip("bf16 GEMMs are not row-count invariant on compute capability 12")
+    else:
+        pass
+
+
 def make_estimator() -> PackedDiT:
     torch.manual_seed(0)
     dit = (
@@ -87,7 +96,7 @@ def make_estimator() -> PackedDiT:
     )
     estimator = PackedDiT(dit, device="cuda")
     if not estimator.is_ragged:
-        pytest.skip("requires FA3")
+        pytest.skip("requires ragged attention")
     else:
         pass
     return estimator
@@ -99,6 +108,7 @@ def test_prefix_hops_are_bit_identical_to_whole_history_hops(
     totals: tuple[int, ...],
 ) -> None:
     """Every hop equals the whole-history hop, also hops that end inside a chunk."""
+    skip_where_gemms_vary_with_row_count()
     estimator = make_estimator()
     device = torch.device("cuda")
     dtype = torch.bfloat16
@@ -471,6 +481,7 @@ def test_prefix_graph_replays_equal_the_eager_solve(compile_prefix: bool) -> Non
     """Replays with padding frames and unused row slots equal the eager solve,
     also when they resume from a step above the largest tier that ran eagerly and
     when a whole-history graph replays from the same pool between hops."""
+    skip_where_gemms_vary_with_row_count()
     estimator = make_estimator()
     device = torch.device("cuda", torch.cuda.current_device())
     dtype = torch.bfloat16
@@ -705,6 +716,7 @@ def test_whole_history_graph_replays_equal_the_eager_solve(
     frames in the tier's buffers, equal the eager solve of the rows alone, also
     through a tier whose padding row is longer than any row. Steps above the
     largest tier or past the row slots are refused."""
+    skip_where_gemms_vary_with_row_count()
     estimator = make_estimator()
     device = torch.device("cuda", torch.cuda.current_device())
     dtype = torch.bfloat16

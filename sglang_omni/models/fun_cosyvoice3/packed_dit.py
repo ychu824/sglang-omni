@@ -7,7 +7,9 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
+from functools import cache
 from itertools import accumulate, pairwise
+from typing import Literal
 
 import torch
 import torch._dynamo as dynamo
@@ -17,6 +19,9 @@ from sglang.kernels.ops.attention.flash_attention import (
     flash_attn_with_kvcache,
 )
 from sglang.kernels.ops.attention.flash_attention_v3 import _is_fa3_supported
+from sglang.kernels.ops.attention.flash_attention_v4 import (
+    is_flash_attention_v4_available,
+)
 from sglang.srt.utils.common import is_pin_memory_available
 from sglang.srt.utils.custom_op import register_custom_op
 
@@ -30,6 +35,8 @@ CONV_CONTEXT_FRAMES = 30
 # note (ratish, chenyang): a row's chunks share a key prefix, so FA3 pages are one frame.
 FA3_PAGE_SIZE = 1
 FA3_DTYPES = (torch.float16, torch.bfloat16)
+# note (Yucheng Hu): FA4 compiles split-KV as separate kernels, so one split keeps every hop on one kernel.
+FA4_NUM_SPLITS = 1
 # note(ratish): the first call benchmark runs at a warmup shape, not a serving one,
 # so its pick can change between boots; the heuristic config is the same on every boot.
 DIT_INDUCTOR_OPTIONS: dict[str, bool] = {"triton.autotune_pointwise": False}
@@ -39,8 +46,24 @@ PACKED_INDUCTOR_OPTIONS: dict[str, bool] = {
 }
 
 
+@cache
+def flash_attention_version(device: torch.device) -> Literal[3, 4] | None:
+    """FlashAttention generation of the ragged reads: 3 where SGLang supports it, 4 on compute capability 12, otherwise None."""
+    if device.type != "cuda" or not torch.cuda.is_available():
+        return None
+    elif _is_fa3_supported():
+        return 3
+    elif (
+        torch.cuda.get_device_capability(device)[0] == 12
+        and is_flash_attention_v4_available()
+    ):
+        return 4
+    else:
+        return None
+
+
 def supports_ragged_attention(device: torch.device) -> bool:
-    return device.type == "cuda" and _is_fa3_supported()
+    return flash_attention_version(device) is not None
 
 
 def ragged_fa3(
@@ -53,17 +76,33 @@ def ragged_fa3(
     max_seqlen_q: int,
     num_splits: int = 0,
 ) -> torch.Tensor:
-    return flash_attn_with_kvcache(
-        q=q,
-        k_cache=k_cache,
-        v_cache=v_cache,
-        cache_seqlens=cache_seqlens,
-        page_table=page_table,
-        cu_seqlens_q=cu_seqlens_q,
-        max_seqlen_q=max_seqlen_q,
-        causal=False,
-        num_splits=num_splits,
-    )
+    version = flash_attention_version(q.device)
+    assert version is not None, "the ragged read needs FA3 or FA4"
+    if version == 3:
+        return flash_attn_with_kvcache(
+            q=q,
+            k_cache=k_cache,
+            v_cache=v_cache,
+            cache_seqlens=cache_seqlens,
+            page_table=page_table,
+            cu_seqlens_q=cu_seqlens_q,
+            max_seqlen_q=max_seqlen_q,
+            causal=False,
+            num_splits=num_splits,
+        )
+    else:
+        return flash_attn_with_kvcache(
+            q=q,
+            k_cache=k_cache,
+            v_cache=v_cache,
+            cache_seqlens=cache_seqlens,
+            page_table=page_table,
+            cu_seqlens_q=cu_seqlens_q,
+            max_seqlen_q=max_seqlen_q,
+            causal=False,
+            num_splits=FA4_NUM_SPLITS,
+            ver=version,
+        )
 
 
 # note(ratish): the compiled forward calls FA3 through this alias-free op;
@@ -80,16 +119,32 @@ def whole_row_fa3(
     cu_seqlens: torch.Tensor,
     max_seqlen: int,
 ) -> torch.Tensor:
-    return flash_attn_varlen_func(
-        q=q,
-        k=k,
-        v=v,
-        cu_seqlens_q=cu_seqlens,
-        cu_seqlens_k=cu_seqlens,
-        max_seqlen_q=max_seqlen,
-        max_seqlen_k=max_seqlen,
-        causal=False,
-    )
+    version = flash_attention_version(q.device)
+    assert version is not None, "the whole row read needs FA3 or FA4"
+    if version == 3:
+        return flash_attn_varlen_func(
+            q=q,
+            k=k,
+            v=v,
+            cu_seqlens_q=cu_seqlens,
+            cu_seqlens_k=cu_seqlens,
+            max_seqlen_q=max_seqlen,
+            max_seqlen_k=max_seqlen,
+            causal=False,
+        )
+    else:
+        return flash_attn_varlen_func(
+            q=q,
+            k=k,
+            v=v,
+            cu_seqlens_q=cu_seqlens,
+            cu_seqlens_k=cu_seqlens,
+            max_seqlen_q=max_seqlen,
+            max_seqlen_k=max_seqlen,
+            causal=False,
+            num_splits=FA4_NUM_SPLITS,
+            ver=version,
+        )
 
 
 packed_whole_row_fa3 = register_custom_op(
@@ -233,8 +288,8 @@ class RowAttention:
 
 
 class RaggedRowAttention:
-    """Chunk causal row attention on the packed sequence via FA3 paged KV, no
-    pad-to-widest."""
+    """Chunk causal row attention on the packed sequence via FA3 or FA4 paged KV,
+    no pad-to-widest."""
 
     def __init__(
         self,
@@ -294,7 +349,7 @@ class RaggedRowAttention:
 
 class WholeRowAttention:
     """Bidirectional attention within each whole row of the packed sequence via
-    FA3 varlen. max_frames bounds the widest row."""
+    FA3 or FA4 varlen. max_frames bounds the widest row."""
 
     def __init__(
         self, rows: PackedRows, *, heads: int, head_dim: int, max_frames: int
@@ -329,7 +384,8 @@ PackedRowAttention = RowAttention | RaggedRowAttention | WholeRowAttention
 
 class PackedDiT:
     """DiT.forward over a packed sequence with the same modules in the same
-    order. Attention is ragged on FA3 half-precision CUDA and padded elsewhere.
+    order. Attention is ragged on half-precision CUDA with FA3, or FA4 on compute
+    capability 12, and padded elsewhere.
     """
 
     block_modulations: tuple[tuple[torch.nn.Parameter, ...], ...]
@@ -371,10 +427,12 @@ class PackedDiT:
                 qkv_biases.append(qkv_bias)
         self.qkv_weights = tuple(qkv_weights)
         self.qkv_biases = tuple(qkv_biases)
+        if self.is_ragged:
+            row_attention_name = f"ragged FA{flash_attention_version(device)}"
+        else:
+            row_attention_name = "padded SDPA"
         logger.info(
-            "Fun-CosyVoice3 Flow row attention on %s: %s",
-            device,
-            "ragged FA3" if self.is_ragged else "padded SDPA",
+            f"Fun-CosyVoice3 Flow row attention on {device}: {row_attention_name}"
         )
 
     @property
