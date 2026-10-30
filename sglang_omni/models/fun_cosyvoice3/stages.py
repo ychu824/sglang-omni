@@ -61,7 +61,7 @@ from sglang_omni.models.fun_cosyvoice3.hift_cuda_graph import HiftDecodeCudaGrap
 from sglang_omni.models.fun_cosyvoice3.packed_dit import (
     CONV_CONTEXT_FRAMES,
     DIT_INDUCTOR_OPTIONS,
-    FA3_DTYPES,
+    FLASH_ATTENTION_DTYPES,
     PackedDiT,
     euler_step_times,
     flash_attention_version,
@@ -2520,7 +2520,7 @@ def create_vocoder_executor(
     has_ragged_attention = (
         not enable_flow_estimator_trt
         and supports_ragged_attention(device_obj)
-        and autocast_dtype in FA3_DTYPES
+        and autocast_dtype in FLASH_ATTENTION_DTYPES
     )
     # note (Yucheng Hu): on the FA4 path (compute capability 12) cuBLAS reduces many bf16 GEMM shapes in bf16 and the prefix hops' small GEMMs hit them (-1.6 dB mel SNR); graphs keep the kernels they capture.
     should_reduce_bf16_gemms_in_float32 = flash_attention_version(device_obj) == 4

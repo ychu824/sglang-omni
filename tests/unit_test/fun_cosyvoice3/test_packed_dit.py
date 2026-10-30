@@ -401,7 +401,7 @@ def test_the_ragged_ops_keep_their_fa3_calls_and_run_fa4_on_one_split(
     pages = torch.zeros(4, 1, 2, 8)
     segment_starts = torch.tensor([0, 4], dtype=torch.int32)
 
-    packed_dit.ragged_fa3(
+    packed_dit.ragged_flash_attention(
         q,
         pages,
         pages,
@@ -410,7 +410,7 @@ def test_the_ragged_ops_keep_their_fa3_calls_and_run_fa4_on_one_split(
         segment_starts,
         4,
     )
-    packed_dit.whole_row_fa3(q, q, q, segment_starts, 4)
+    packed_dit.whole_row_flash_attention(q, q, q, segment_starts, 4)
 
     assert calls == expected_calls
 

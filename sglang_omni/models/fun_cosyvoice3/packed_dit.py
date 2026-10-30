@@ -32,9 +32,9 @@ logger = logging.getLogger(__name__)
 # Note (Jiaxin Deng): each positional conv has kernel 31, so it reads the 30
 # frames before its input frame.
 CONV_CONTEXT_FRAMES = 30
-# note (ratish, chenyang): a row's chunks share a key prefix, so FA3 pages are one frame.
-FA3_PAGE_SIZE = 1
-FA3_DTYPES = (torch.float16, torch.bfloat16)
+# note (ratish, chenyang): a row's chunks share a key prefix, so FlashAttention pages are one frame.
+FLASH_ATTENTION_PAGE_SIZE = 1
+FLASH_ATTENTION_DTYPES = (torch.float16, torch.bfloat16)
 # note (Yucheng Hu): FA4 compiles split-KV as separate kernels, so one split keeps every hop on one kernel.
 FA4_NUM_SPLITS = 1
 # note(ratish): the first call benchmark runs at a warmup shape, not a serving one,
@@ -66,7 +66,7 @@ def supports_ragged_attention(device: torch.device) -> bool:
     return flash_attention_version(device) is not None
 
 
-def ragged_fa3(
+def ragged_flash_attention(
     q: torch.Tensor,
     k_cache: torch.Tensor,
     v_cache: torch.Tensor,
@@ -105,14 +105,17 @@ def ragged_fa3(
         )
 
 
-# note(ratish): the compiled forward calls FA3 through this alias-free op;
-# eager calls ragged_fa3 directly and skips the custom op dispatch per block.
-packed_fa3 = register_custom_op(
-    ragged_fa3, op_name="fun_cosyvoice3_packed_fa3", mutates_args=[], out_shape="q"
+# note(ratish): the compiled forward calls FlashAttention through this alias-free op;
+# eager calls ragged_flash_attention directly and skips the custom op dispatch per block.
+packed_flash_attention = register_custom_op(
+    ragged_flash_attention,
+    op_name="fun_cosyvoice3_packed_flash_attention",
+    mutates_args=[],
+    out_shape="q",
 )
 
 
-def whole_row_fa3(
+def whole_row_flash_attention(
     q: torch.Tensor,
     k: torch.Tensor,
     v: torch.Tensor,
@@ -147,9 +150,9 @@ def whole_row_fa3(
         )
 
 
-packed_whole_row_fa3 = register_custom_op(
-    whole_row_fa3,
-    op_name="fun_cosyvoice3_whole_row_fa3",
+packed_whole_row_flash_attention = register_custom_op(
+    whole_row_flash_attention,
+    op_name="fun_cosyvoice3_whole_row_flash_attention",
     mutates_args=[],
     out_shape="q",
 )
@@ -330,12 +333,12 @@ class RaggedRowAttention:
     ) -> torch.Tensor:
         """query, key, value: (1, total, heads * head_dim). Returns the same
         shape."""
-        page_shape = (-1, FA3_PAGE_SIZE, self.heads, self.head_dim)
+        page_shape = (-1, FLASH_ATTENTION_PAGE_SIZE, self.heads, self.head_dim)
         if torch.compiler.is_compiling():
-            fa3 = packed_fa3
+            flash_attention = packed_flash_attention
         else:
-            fa3 = ragged_fa3
-        out = fa3(
+            flash_attention = ragged_flash_attention
+        out = flash_attention(
             query[0].reshape(-1, self.heads, self.head_dim),
             key[0].reshape(page_shape),
             value[0].reshape(page_shape),
@@ -365,11 +368,11 @@ class WholeRowAttention:
         """query, key, value: (1, total, heads * head_dim). Returns the same
         shape."""
         if torch.compiler.is_compiling():
-            fa3 = packed_whole_row_fa3
+            flash_attention = packed_whole_row_flash_attention
         else:
-            fa3 = whole_row_fa3
+            flash_attention = whole_row_flash_attention
         head_shape = (-1, self.heads, self.head_dim)
-        out = fa3(
+        out = flash_attention(
             query[0].reshape(head_shape),
             key[0].reshape(head_shape),
             value[0].reshape(head_shape),
@@ -476,7 +479,7 @@ class PackedDiT:
         heads = attention.heads
         head_dim = attention.inner_dim // heads
         row_attention: RaggedRowAttention | WholeRowAttention
-        if not self.is_ragged or dtype not in FA3_DTYPES:
+        if not self.is_ragged or dtype not in FLASH_ATTENTION_DTYPES:
             return RowAttention(
                 rows, chunk_size=self.chunk_size if streaming else None, heads=heads
             )
@@ -509,7 +512,7 @@ class PackedDiT:
         return row_attention
 
     def compile(self, dtype: torch.dtype | None) -> bool:
-        if not self.is_ragged or dtype not in FA3_DTYPES:
+        if not self.is_ragged or dtype not in FLASH_ATTENTION_DTYPES:
             logger.debug(
                 f"Skipping PackedDiT torch.compile (ragged={self.is_ragged}, dtype={dtype})"
             )
