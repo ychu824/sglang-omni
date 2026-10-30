@@ -9,7 +9,10 @@ import pytest
 import torch
 
 import sglang_omni.models.fun_cosyvoice3.stages as stages
-from sglang_omni.models.fun_cosyvoice3.solve_graph_capture import SolveGraphCapture
+from sglang_omni.models.fun_cosyvoice3.solve_graph_capture import (
+    CAPTURE_WARMUP_RUNS,
+    SolveGraphCapture,
+)
 
 
 @pytest.fixture
@@ -274,7 +277,10 @@ def test_flow_graphs_capture_float32_reduced_bf16_gemms_only_when_asked(
         graphs.capture(failing_solve)
 
     flow_flag = is_reduced_precision_allowed and not should_reduce_bf16_gemms_in_float32
-    assert seen == [flow_flag] * 3 + [is_reduced_precision_allowed] * 3
+    solve_calls = CAPTURE_WARMUP_RUNS + 1
+    assert (
+        seen == [flow_flag] * solve_calls + [is_reduced_precision_allowed] * solve_calls
+    )
     assert (
         matmul.allow_bf16_reduced_precision_reduction,
         matmul.allow_bf16_reduced_precision_reduction_split_k,

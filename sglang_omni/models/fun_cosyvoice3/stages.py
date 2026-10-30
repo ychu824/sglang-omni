@@ -2522,7 +2522,7 @@ def create_vocoder_executor(
         and supports_ragged_attention(device_obj)
         and autocast_dtype in FLASH_ATTENTION_DTYPES
     )
-    # note (Yucheng Hu): on the FA4 path (compute capability 12) cuBLAS reduces many bf16 GEMM shapes in bf16 and the prefix hops' small GEMMs hit them (-1.6 dB mel SNR); graphs keep the kernels they capture.
+    # note (Yucheng Hu): on the FA4 path (compute capability 12) cuBLAS reduces small bf16 GEMMs in bf16, which costs the prefix hops accuracy; graphs keep the kernels chosen at capture.
     should_reduce_bf16_gemms_in_float32 = flash_attention_version(device_obj) == 4
     has_prefix_pool = has_ragged_attention and (
         flow_prefix_cache_gb is None or flow_prefix_cache_gb > 0
@@ -2691,12 +2691,16 @@ def create_vocoder_executor(
     if has_prefix_graphs or has_whole_history_graphs or has_hift_graphs:
         graph_backend = current_platform.get_device_graph_backend(device_obj)
         assert graph_backend is not None
-        solve_graphs = SolveGraphCapture(
-            graph_backend,
-            device=device_obj,
-            autocast_dtype=autocast_dtype,
-            should_reduce_bf16_gemms_in_float32=should_reduce_bf16_gemms_in_float32,
-        )
+
+        def make_solve_graphs() -> SolveGraphCapture:
+            return SolveGraphCapture(
+                graph_backend,
+                device=device_obj,
+                autocast_dtype=autocast_dtype,
+                should_reduce_bf16_gemms_in_float32=should_reduce_bf16_gemms_in_float32,
+            )
+
+        solve_graphs = make_solve_graphs()
     else:
         pass
     if has_whole_history_graphs:
@@ -2795,13 +2799,7 @@ def create_vocoder_executor(
             torch.accelerator.empty_cache()
             free_bytes = torch.accelerator.get_memory_info(device_obj)[0]
             dry_prefix_runner = make_prefix_runner(
-                flow.prefix_pool,
-                SolveGraphCapture(
-                    graph_backend,
-                    device=device_obj,
-                    autocast_dtype=autocast_dtype,
-                    should_reduce_bf16_gemms_in_float32=should_reduce_bf16_gemms_in_float32,
-                ),
+                flow.prefix_pool, make_solve_graphs()
             )
             dry_prefix_runner.capture()
             torch.accelerator.empty_cache()

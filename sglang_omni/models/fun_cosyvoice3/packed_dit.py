@@ -48,7 +48,7 @@ PACKED_INDUCTOR_OPTIONS: dict[str, bool] = {
 
 @cache
 def flash_attention_version(device: torch.device) -> Literal[3, 4] | None:
-    """FlashAttention generation of the ragged reads: 3 where SGLang supports it, 4 on compute capability 12, otherwise None."""
+    """FlashAttention generation of the ragged reads: 3 where SGLang supports it, 4 on compute capability 12 when SGLang's FA4 imports, otherwise None."""
     if device.type != "cuda" or not torch.cuda.is_available():
         return None
     elif _is_fa3_supported():
@@ -78,6 +78,7 @@ def ragged_flash_attention(
 ) -> torch.Tensor:
     version = flash_attention_version(q.device)
     assert version is not None, "the ragged read needs FA3 or FA4"
+    # note (Yucheng Hu): the FA3 calls stay exactly as on main, so compute capability 8.x and 9.x dispatch as before.
     if version == 3:
         return flash_attn_with_kvcache(
             q=q,
