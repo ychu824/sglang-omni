@@ -64,6 +64,7 @@ from sglang_omni.models.fun_cosyvoice3.packed_dit import (
     FA3_DTYPES,
     PackedDiT,
     euler_step_times,
+    flash_attention_version,
     gather_rows,
     pack_rows,
     scatter_rows,
@@ -2521,6 +2522,8 @@ def create_vocoder_executor(
         and supports_ragged_attention(device_obj)
         and autocast_dtype in FA3_DTYPES
     )
+    # note (Yucheng Hu): on the FA4 path (compute capability 12) cuBLAS reduces many bf16 GEMM shapes in bf16 and the prefix hops' small GEMMs hit them (-1.6 dB mel SNR); graphs keep the kernels they capture.
+    should_reduce_bf16_gemms_in_float32 = flash_attention_version(device_obj) == 4
     has_prefix_pool = has_ragged_attention and (
         flow_prefix_cache_gb is None or flow_prefix_cache_gb > 0
     )
@@ -2689,7 +2692,10 @@ def create_vocoder_executor(
         graph_backend = current_platform.get_device_graph_backend(device_obj)
         assert graph_backend is not None
         solve_graphs = SolveGraphCapture(
-            graph_backend, device=device_obj, autocast_dtype=autocast_dtype
+            graph_backend,
+            device=device_obj,
+            autocast_dtype=autocast_dtype,
+            should_reduce_bf16_gemms_in_float32=should_reduce_bf16_gemms_in_float32,
         )
     else:
         pass
@@ -2791,7 +2797,10 @@ def create_vocoder_executor(
             dry_prefix_runner = make_prefix_runner(
                 flow.prefix_pool,
                 SolveGraphCapture(
-                    graph_backend, device=device_obj, autocast_dtype=autocast_dtype
+                    graph_backend,
+                    device=device_obj,
+                    autocast_dtype=autocast_dtype,
+                    should_reduce_bf16_gemms_in_float32=should_reduce_bf16_gemms_in_float32,
                 ),
             )
             dry_prefix_runner.capture()

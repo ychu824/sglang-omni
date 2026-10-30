@@ -1686,11 +1686,18 @@ def test_prefix_pool_leaves_the_runtime_headroom_and_the_largest_step(
     ]
 
 
+@pytest.mark.parametrize(
+    ("flash_attention_version", "should_reduce_bf16_gemms_in_float32"),
+    [(4, True), (3, False), (None, False)],
+)
 def test_a_share_that_holds_no_block_serves_without_the_prefix_cache(
     monkeypatch: pytest.MonkeyPatch,
+    flash_attention_version: int | None,
+    should_reduce_bf16_gemms_in_float32: bool,
 ) -> None:
     """With the prefix graphs on, a declared share the vocoder's load filled failed
-    startup on the throwaway pool instead of serving without the prefix cache."""
+    startup on the throwaway pool instead of serving without the prefix cache. Only the
+    FA4 path captures its Flow graphs with float32-reduced bf16 GEMMs."""
     fake_flow = RunnableFakeFlow()
     fake_flow.decoder.estimator.transformer_blocks = [
         SimpleNamespace(attn=SimpleNamespace(heads=2, inner_dim=8))
@@ -1742,10 +1749,21 @@ def test_a_share_that_holds_no_block_serves_without_the_prefix_cache(
         current_platform, "get_device_graph_backend", lambda device: SimpleNamespace()
     )
     monkeypatch.setattr(
-        stages,
-        "SolveGraphCapture",
-        lambda backend, *, device, autocast_dtype: SimpleNamespace(),
+        stages, "flash_attention_version", lambda device: flash_attention_version
     )
+    captures: list[bool] = []
+
+    def record_capture(
+        backend: SimpleNamespace,
+        *,
+        device: torch.device,
+        autocast_dtype: torch.dtype | None,
+        should_reduce_bf16_gemms_in_float32: bool,
+    ) -> SimpleNamespace:
+        captures.append(should_reduce_bf16_gemms_in_float32)
+        return SimpleNamespace()
+
+    monkeypatch.setattr(stages, "SolveGraphCapture", record_capture)
 
     scheduler = stages.create_vocoder_executor(
         "model",
@@ -1763,6 +1781,7 @@ def test_a_share_that_holds_no_block_serves_without_the_prefix_cache(
 
     assert scheduler.vocoder.flow.prefix_pool is None
     assert scheduler.vocoder.flow.prefix_cuda_graph_runner is None
+    assert captures == [should_reduce_bf16_gemms_in_float32]
 
 
 def test_a_cpu_vocoder_serves_without_the_default_prefix_cache(
@@ -2287,7 +2306,12 @@ def test_hift_decode_replay_equals_each_rows_own_decode(
     assert backend is not None
     runner = HiftDecodeCudaGraphRunner(
         hift,
-        graphs=SolveGraphCapture(backend, device=device, autocast_dtype=torch.bfloat16),
+        graphs=SolveGraphCapture(
+            backend,
+            device=device,
+            autocast_dtype=torch.bfloat16,
+            should_reduce_bf16_gemms_in_float32=False,
+        ),
         mel_channels=80,
         samples_per_frame=samples_per_frame,
         row_tiers=[1, 4],
@@ -2323,7 +2347,12 @@ def test_hift_step_through_the_decode_graphs_equals_the_eager_step(
     assert backend is not None
     runner = HiftDecodeCudaGraphRunner(
         vocoder.hift,
-        graphs=SolveGraphCapture(backend, device=device, autocast_dtype=torch.bfloat16),
+        graphs=SolveGraphCapture(
+            backend,
+            device=device,
+            autocast_dtype=torch.bfloat16,
+            should_reduce_bf16_gemms_in_float32=False,
+        ),
         mel_channels=80,
         samples_per_frame=samples_per_frame,
         row_tiers=[1, 4],

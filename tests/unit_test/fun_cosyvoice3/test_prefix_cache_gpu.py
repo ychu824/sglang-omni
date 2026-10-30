@@ -510,7 +510,12 @@ def test_prefix_graph_replays_equal_the_eager_solve(compile_prefix: bool) -> Non
         pass
     backend = current_platform.get_device_graph_backend(device)
     assert backend is not None
-    graphs = SolveGraphCapture(backend, device=device, autocast_dtype=dtype)
+    graphs = SolveGraphCapture(
+        backend,
+        device=device,
+        autocast_dtype=dtype,
+        should_reduce_bf16_gemms_in_float32=False,
+    )
     runner = PrefixCudaGraphRunner(
         estimator,
         graph_pool,
@@ -678,7 +683,12 @@ def test_prefix_graph_tiers_capture_over_one_set_of_input_buffers() -> None:
     runner = PrefixCudaGraphRunner(
         estimator,
         pool,
-        graphs=SolveGraphCapture(backend, device=device, autocast_dtype=dtype),
+        graphs=SolveGraphCapture(
+            backend,
+            device=device,
+            autocast_dtype=dtype,
+            should_reduce_bf16_gemms_in_float32=False,
+        ),
         frame_dtype=torch.float32,
         speaker_dtype=dtype,
         cfg_rate=0.7,
@@ -765,7 +775,12 @@ def test_whole_history_graph_replays_equal_the_eager_solve(
     assert backend is not None
     runner = WholeHistoryCudaGraphRunner(
         estimator,
-        graphs=SolveGraphCapture(backend, device=device, autocast_dtype=dtype),
+        graphs=SolveGraphCapture(
+            backend,
+            device=device,
+            autocast_dtype=dtype,
+            should_reduce_bf16_gemms_in_float32=False,
+        ),
         frame_dtype=torch.float32,
         speaker_dtype=dtype,
         cfg_rate=0.7,

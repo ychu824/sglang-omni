@@ -9,6 +9,7 @@ import pytest
 import torch
 
 import sglang_omni.models.fun_cosyvoice3.stages as stages
+from sglang_omni.models.fun_cosyvoice3.solve_graph_capture import SolveGraphCapture
 
 
 @pytest.fixture
@@ -231,3 +232,50 @@ def test_capture_populates_graphs_and_replays_eager_equivalent() -> None:
     assert replayed is not None
     assert replayed.shape == eager.shape
     torch.testing.assert_close(replayed, eager, rtol=1e-4, atol=1e-4)
+
+
+@pytest.mark.parametrize(
+    "reduction_setting", [(True, True), (False, True), (False, False)]
+)
+@pytest.mark.parametrize("should_reduce_bf16_gemms_in_float32", [True, False])
+def test_flow_graphs_capture_float32_reduced_bf16_gemms_only_when_asked(
+    monkeypatch: pytest.MonkeyPatch,
+    should_reduce_bf16_gemms_in_float32: bool,
+    reduction_setting: tuple[bool, bool],
+) -> None:
+    """The Flow's bf16 warmups and capture reduce in float32 when asked; HiFT's float32 graphs, and the flag after a capture or a failed one, keep the caller's setting."""
+    monkeypatch.setattr(torch.cpu, "Stream", lambda device: torch.cpu.current_stream())
+    matmul = torch.backends.cuda.matmul
+    is_reduced_precision_allowed = reduction_setting[0]
+    monkeypatch.setattr(
+        matmul, "allow_bf16_reduced_precision_reduction", reduction_setting
+    )
+    seen: list[bool] = []
+
+    def solve() -> torch.Tensor:
+        seen.append(torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction)
+        return torch.zeros(1)
+
+    def failing_solve() -> torch.Tensor:
+        raise RuntimeError("capture failed")
+
+    graphs = SolveGraphCapture(
+        SimpleNamespace(
+            graph_pool_handle=lambda: None,
+            capture=lambda **kwargs: contextlib.nullcontext("graph"),
+        ),
+        device=torch.device("cpu"),
+        autocast_dtype=torch.bfloat16,
+        should_reduce_bf16_gemms_in_float32=should_reduce_bf16_gemms_in_float32,
+    )
+    graphs.capture(solve)
+    graphs.capture(solve, autocast=False)
+    with pytest.raises(RuntimeError, match="capture failed"):
+        graphs.capture(failing_solve)
+
+    flow_flag = is_reduced_precision_allowed and not should_reduce_bf16_gemms_in_float32
+    assert seen == [flow_flag] * 3 + [is_reduced_precision_allowed] * 3
+    assert (
+        matmul.allow_bf16_reduced_precision_reduction,
+        matmul.allow_bf16_reduced_precision_reduction_split_k,
+    ) == reduction_setting
