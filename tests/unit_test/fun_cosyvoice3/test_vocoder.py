@@ -1686,14 +1686,12 @@ def test_prefix_pool_leaves_the_runtime_headroom_and_the_largest_step(
     ]
 
 
-@pytest.mark.parametrize(
-    ("flash_attention_version", "should_reduce_bf16_gemms_in_float32"),
-    [(4, True), (3, False), (None, False)],
-)
+@pytest.mark.parametrize("is_fa4", [True, False])
+@pytest.mark.parametrize("is_step_too_large", [False, True])
 def test_a_share_that_holds_no_block_serves_without_the_prefix_cache(
     monkeypatch: pytest.MonkeyPatch,
-    flash_attention_version: int | None,
-    should_reduce_bf16_gemms_in_float32: bool,
+    is_step_too_large: bool,
+    is_fa4: bool,
 ) -> None:
     """With the prefix graphs on, a declared share the vocoder's load filled failed
     startup on the throwaway pool instead of serving without the prefix cache. Only the
@@ -1740,17 +1738,26 @@ def test_a_share_that_holds_no_block_serves_without_the_prefix_cache(
     monkeypatch.setattr(
         torch.cuda, "get_per_process_memory_fraction", lambda device: 1.0
     )
+
+    def measure(
+        scheduler: FunCosyVoice3StreamingVocoderScheduler,
+        device: torch.device,
+        *,
+        row_count: int,
+        generated_tokens_per_row: int,
+    ) -> int:
+        if is_step_too_large:
+            raise torch.OutOfMemoryError("step")
+        else:
+            return 2**30
+
     monkeypatch.setattr(
-        FunCosyVoice3StreamingVocoderScheduler,
-        "measure_peak_step_bytes",
-        lambda scheduler, device, *, row_count, generated_tokens_per_row: 2**30,
+        FunCosyVoice3StreamingVocoderScheduler, "measure_peak_step_bytes", measure
     )
     monkeypatch.setattr(
         current_platform, "get_device_graph_backend", lambda device: SimpleNamespace()
     )
-    monkeypatch.setattr(
-        stages, "flash_attention_version", lambda device: flash_attention_version
-    )
+    monkeypatch.setattr(stages, "uses_fa4", lambda device: is_fa4)
     captures: list[bool] = []
 
     def record_capture(
@@ -1781,7 +1788,7 @@ def test_a_share_that_holds_no_block_serves_without_the_prefix_cache(
 
     assert scheduler.vocoder.flow.prefix_pool is None
     assert scheduler.vocoder.flow.prefix_cuda_graph_runner is None
-    assert captures == [should_reduce_bf16_gemms_in_float32]
+    assert captures == [is_fa4]
 
 
 def test_a_cpu_vocoder_serves_without_the_default_prefix_cache(

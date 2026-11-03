@@ -118,7 +118,7 @@ def test_the_compiled_chunk_mask_matches_eager(static_chunk_size: int) -> None:
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
 def test_production_packed_dit_compile_is_as_close_to_float32_as_eager() -> None:
     if not supports_ragged_attention(torch.device("cuda")):
-        pytest.skip("ragged attention is unavailable on this device")
+        pytest.skip("Ragged attention is unavailable on this device")
 
     torch.manual_seed(3)
     dit = (
