@@ -13,6 +13,10 @@ from sglang_omni.models.fun_cosyvoice3.solve_graph_capture import (
     CAPTURE_WARMUP_RUNS,
     SolveGraphCapture,
 )
+from tests.unit_test.fixtures.torch_backend_flags import (  # noqa: F401  # fixture
+    CublasFlagSetter,
+    cublas_flags,
+)
 
 
 @pytest.fixture
@@ -243,6 +247,7 @@ def test_capture_populates_graphs_and_replays_eager_equivalent() -> None:
 @pytest.mark.parametrize("should_reduce_bf16_gemms_in_float32", [True, False])
 def test_flow_graphs_capture_float32_reduced_bf16_gemms_only_when_asked(
     monkeypatch: pytest.MonkeyPatch,
+    cublas_flags: CublasFlagSetter,
     should_reduce_bf16_gemms_in_float32: bool,
     reduction_setting: tuple[bool, bool],
 ) -> None:
@@ -250,9 +255,7 @@ def test_flow_graphs_capture_float32_reduced_bf16_gemms_only_when_asked(
     monkeypatch.setattr(torch.cpu, "Stream", lambda device: torch.cpu.current_stream())
     matmul = torch.backends.cuda.matmul
     is_reduced_precision_allowed = reduction_setting[0]
-    monkeypatch.setattr(
-        matmul, "allow_bf16_reduced_precision_reduction", reduction_setting
-    )
+    cublas_flags("allow_bf16_reduced_precision_reduction", reduction_setting)
     seen: list[bool] = []
 
     def solve() -> torch.Tensor:
