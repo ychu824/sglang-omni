@@ -13,7 +13,7 @@ import torch
 
 
 class CublasFlagSetter(Protocol):
-    def __call__(self, name: str, value: bool) -> None: ...
+    def __call__(self, name: str, value: bool | tuple[bool, bool]) -> None: ...
 
 
 @pytest.fixture
@@ -21,7 +21,7 @@ def cublas_flags() -> Iterator[CublasFlagSetter]:
     module = torch.backends.cuda.matmul
     saved: dict[str, bool] = {}
 
-    def set_flag(name: str, value: bool) -> None:
+    def set_flag(name: str, value: bool | tuple[bool, bool]) -> None:
         saved.setdefault(name, getattr(module, name))
         setattr(module, name, value)
 
