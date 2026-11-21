@@ -38,6 +38,8 @@ from sglang_omni.utils.audio import load_audio
 class ReferenceAudioInput(NamedTuple):
     audio_path: str
     max_audio_seconds: float | None
+    # note (yucheng): Filled by prepare_batch_input in the calling thread, only for requests that reach the batch worker.
+    normalized_audio: torch.Tensor | None = None
 
 
 ReferenceConditioning = dict[str, torch.Tensor]
@@ -46,6 +48,8 @@ logger = logging.getLogger(__name__)
 CACHE_MAX_ITEMS = 256
 CACHE_MAX_BYTES = 64 * 1024 * 1024
 WARMUP_AUDIO_SECONDS = 8.0
+# note (yucheng): Rows x longest clip per batched RedAE forward; 8 clips of 12 s fill it, longer references split into smaller forwards or run alone.
+MAX_BATCH_AUDIO_SECONDS = 96.0
 
 
 class FireRedReferenceBundle:
@@ -68,6 +72,7 @@ class FireRedReferenceBundle:
             * int(config.enc_extra_downsample_rate)
             * int(config.patch_size)
         )
+        self.batch_sample_budget: int = int(MAX_BATCH_AUDIO_SECONDS * self.sample_rate)
         self.redae_scale: float = float(config.redae_scale or 1.0)
         self.lock: LockType = threading.Lock()
 
@@ -119,6 +124,89 @@ class FireRedReferenceBundle:
             pass
         return artifact
 
+    @torch.no_grad()
+    def encode_batch(
+        self, clips: list[torch.Tensor]
+    ) -> list[ReferenceConditioning | Exception]:
+        """Encode normalized clips, one right-padded RedAE forward per length-sorted group."""
+        # note (yucheng): Sorting keeps padding small, and the budget bounds rows x longest clip so one long reference cannot multiply memory by the batch size.
+        groups: list[list[int]] = []
+        for index in sorted(range(len(clips)), key=lambda i: clips[i].shape[-1]):
+            if (
+                groups
+                and (len(groups[-1]) + 1) * clips[index].shape[-1]
+                <= self.batch_sample_budget
+            ):
+                groups[-1].append(index)
+            else:
+                groups.append([index])
+        outcomes: dict[int, ReferenceConditioning | Exception] = {}
+        probe = ProfilingProbe.create()
+        with self.lock:
+            pending = list(groups)
+            while pending:
+                group = pending.pop(0)
+                split = False
+                # note (yucheng): A group that fails is retried row by row, so only a clip that also fails alone returns an error. The stored exception drops its traceback, and the retry runs after the except block, because the traceback frames pin the failed group's activations.
+                try:
+                    outcomes.update(self.encode_group(clips, group, probe))
+                except Exception as exc:
+                    if len(group) > 1:
+                        split = True
+                    else:
+                        outcomes[group[0]] = exc.with_traceback(None)
+                if split:
+                    pending[0:0] = [[index] for index in group]
+                else:
+                    pass
+        probe.log(f"batch of {len(clips)}")
+        return [outcomes[index] for index in range(len(clips))]
+
+    def encode_group(
+        self, clips: list[torch.Tensor], group: list[int], probe: ProfilingProbe
+    ) -> dict[int, ReferenceConditioning]:
+        """Encode the clips at the given indices in one right-padded forward; raises if any part of it fails."""
+        padded_audio = torch.nn.utils.rnn.pad_sequence(
+            [clips[index][0] for index in group], batch_first=True
+        ).to(self.device)
+        with probe.segment("campp"):
+            # note (yucheng): CAM++ pools over time, so each clip goes through it unpadded.
+            speaker_embeddings = (
+                torch.cat(
+                    [
+                        self.spk_extractor(
+                            padded_audio[row : row + 1, : clips[index].shape[-1]],
+                            self.sample_rate,
+                        ).float()
+                        for row, index in enumerate(group)
+                    ]
+                )
+                if self.spk_extractor is not None
+                else None
+            )
+        with probe.segment("redae_encode"):
+            with torch.autocast(device_type=self.device.type, dtype=torch.bfloat16):
+                latents = self.encoder(padded_audio)
+        latents = (latents.float() * self.redae_scale).cpu()
+        # note (yucheng): Copying the embeddings to the host after the RedAE launch lets CAM++ and RedAE overlap on the GPU, as in the per-clip encode.
+        if speaker_embeddings is not None:
+            speaker_embeddings = speaker_embeddings.cpu()
+        else:
+            pass
+        artifacts: dict[int, ReferenceConditioning] = {}
+        for row, index in enumerate(group):
+            # note (yucheng): The encoder is causal, so right padding leaves every valid latent frame unchanged.
+            frame_count = clips[index].shape[-1] // self.encoder.downsample_rate
+            artifact = {"prompt_latents": latents[row : row + 1, :frame_count].clone()}
+            if speaker_embeddings is not None:
+                artifact["speaker_embedding"] = speaker_embeddings[
+                    row : row + 1
+                ].clone()
+            else:
+                pass
+            artifacts[index] = artifact
+        return artifacts
+
     def warmup(self) -> None:
         """Run one real-shaped dummy clip through CAM++ and the RedAE encoder."""
         samples = int(self.sample_rate * WARMUP_AUDIO_SECONDS)
@@ -165,18 +253,40 @@ class FireRedReferenceHook(
             return None
         else:
             pass
-        reference_audio_path, _ = item
         return reference_path_cache_key(
-            reference_audio_path, trust_stat=False
-        ) or hash_media_item(reference_audio_path)
+            item.audio_path, trust_stat=False
+        ) or hash_media_item(item.audio_path)
 
     def options_key(self, item: ReferenceAudioInput) -> str:
-        _, max_audio_seconds = item
-        return "" if max_audio_seconds is None else f"cap{max_audio_seconds}"
+        return "" if item.max_audio_seconds is None else f"cap{item.max_audio_seconds}"
 
     def encode_one(self, item: ReferenceAudioInput) -> ReferenceConditioning:
-        reference_audio_path, max_audio_seconds = item
-        return self.bundle.encode(reference_audio_path, max_seconds=max_audio_seconds)
+        return self.bundle.encode(item.audio_path, max_seconds=item.max_audio_seconds)
+
+    def can_encode_batch(self) -> bool:
+        return True
+
+    def can_encode_alone(self) -> bool:
+        return True
+
+    def prepare_batch_input(self, item: ReferenceAudioInput) -> ReferenceAudioInput:
+        normalized_audio = self.bundle.normalize(
+            item.audio_path, item.max_audio_seconds
+        )
+        # note (yucheng): CAM++ cannot embed an empty clip, and rejecting it here keeps its batch-mates unaffected.
+        if normalized_audio.shape[-1] == 0:
+            raise ValueError("FireRedTTS3 reference audio has no samples")
+        else:
+            pass
+        return ReferenceAudioInput(
+            item.audio_path, item.max_audio_seconds, normalized_audio
+        )
+
+    def encode_batch(
+        self, items: list[ReferenceAudioInput]
+    ) -> list[ReferenceConditioning | Exception]:
+        assert all(item.normalized_audio is not None for item in items)
+        return self.bundle.encode_batch([item.normalized_audio for item in items])
 
     @staticmethod
     def store_artifact(artifact: ReferenceConditioning) -> ReferenceConditioning:
