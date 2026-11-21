@@ -19,6 +19,7 @@ from sglang_omni.config import (
 )
 from sglang_omni.config.session_audio import AudioSessionPipelineConfig, StageGroup
 from sglang_omni.models.qwen3_omni.session_node import SESSION_PORTS
+from sglang_omni.models.qwen3_omni.speech_budget import speech_token_budget
 from sglang_omni.platforms import current_platform
 from sglang_omni.proto.session import GRAPH_INPUT
 from sglang_omni.proto.streams import IMAGE, SessionPorts
@@ -331,10 +332,14 @@ def build_server_warmup_request(
     """An image, a second of audio and a short instruction through every stage."""
     if pipeline_config.code2wav_stage() is None:
         modalities = ["text"]
+        thinker_max_new_tokens = WARMUP_MAX_TOKENS
         talker_max_new_tokens = None
     else:
         modalities = ["text", "audio"]
         talker_max_new_tokens = WARMUP_MAX_TOKENS
+        thinker_max_new_tokens = min(
+            WARMUP_MAX_TOKENS, speech_token_budget(talker_max_new_tokens)
+        )
     return ChatCompletionRequest(
         messages=[
             ChatMessage(
@@ -360,7 +365,7 @@ def build_server_warmup_request(
             )
         ],
         modalities=modalities,
-        max_tokens=WARMUP_MAX_TOKENS,
+        max_tokens=thinker_max_new_tokens,
         talker_max_new_tokens=talker_max_new_tokens,
         temperature=0.0,
     )

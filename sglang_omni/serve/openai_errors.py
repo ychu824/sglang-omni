@@ -26,6 +26,7 @@ _BAD_REQUEST_MARKERS = (
     "Invalid media data while extracting embedded audio from",
     "Invalid media data while decoding video path=",
     "Qwen3-Omni requires all videos in a request to have the same sampled FPS",
+    "Qwen3-Omni speech token budget exceeded:",
     "video_fps must be positive and finite",
     "video_max_frames must be positive",
     "Video pixel budgets must be positive",

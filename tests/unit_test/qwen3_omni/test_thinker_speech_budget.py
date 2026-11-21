@@ -10,30 +10,9 @@ pytest.importorskip("sglang")
 pytest.importorskip("xxhash")
 
 from sglang_omni.models.qwen3_omni.request_builders import (
-    SLOWEST_LONG_SPEECH_FRAMES,
-    SLOWEST_LONG_SPEECH_FRAMES_PER_TOKEN,
-    SLOWEST_SPEECH_FRAMES_PER_TOKEN,
-    SPEECH_BUDGET_MARGIN,
     make_thinker_scheduler_adapters,
-    speech_token_budget,
 )
 from tests.unit_test.fixtures.qwen_fakes import FakeQwenTokenizer, make_qwen_payload
-
-
-def slowest_speech_frames(tokens: int) -> float:
-    return min(
-        SLOWEST_SPEECH_FRAMES_PER_TOKEN * tokens,
-        SLOWEST_LONG_SPEECH_FRAMES + SLOWEST_LONG_SPEECH_FRAMES_PER_TOKEN * tokens,
-    )
-
-
-@pytest.mark.parametrize("talker_frames", [50, 1000, 4096, 16384])
-def test_the_budget_is_the_most_tokens_whose_slowest_speech_fits(
-    talker_frames: int,
-) -> None:
-    budget = speech_token_budget(talker_frames)
-    assert SPEECH_BUDGET_MARGIN * slowest_speech_frames(budget) <= talker_frames
-    assert SPEECH_BUDGET_MARGIN * slowest_speech_frames(budget + 1) > talker_frames
 
 
 @pytest.mark.parametrize(

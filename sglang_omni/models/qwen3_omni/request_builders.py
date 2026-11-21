@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import logging
-import math
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypedDict, overload
@@ -23,6 +22,10 @@ from sglang_omni.models.qwen3_omni.payload_types import (
     Qwen3OmniPipelineState,
     StreamState,
     ThinkerOutput,
+)
+from sglang_omni.models.qwen3_omni.speech_budget import (
+    TALKER_DEFAULT_MAX_NEW_TOKENS,
+    thinker_max_new_tokens,
 )
 from sglang_omni.pipeline.stage.stream_queue import StreamItem
 from sglang_omni.proto import OmniRequest, StagePayload
@@ -63,14 +66,6 @@ DECODE_STAGE = "decode"
 TALKER_STAGE = "talker_ar"
 CODE2WAV_STAGE = "code2wav"
 MM_AGGREGATE_STAGE = "mm_aggregate"
-
-THINKER_DEFAULT_MAX_NEW_TOKENS = 2048
-TALKER_DEFAULT_MAX_NEW_TOKENS = 4096
-# note (luojiaxuan): Over 193 replies of Qwen3-Omni-30B-A3B-Instruct's default voice that ended on their own (6 to 1830 thinker tokens, English and Chinese), a reply of n tokens never took more than 6.905 n codec frames nor more than 600 + 4.405 n (a list of numbers read out is the slowest). A spoken reply's thinker budget lets 1.5 times that fit in the talker's: a split by prompt left 0.21 of about 96 held-out replies above 1.5 times the envelope fitted on the rest, and 0.17 above twice it.
-SLOWEST_SPEECH_FRAMES_PER_TOKEN = 6.905
-SLOWEST_LONG_SPEECH_FRAMES = 600
-SLOWEST_LONG_SPEECH_FRAMES_PER_TOKEN = 4.405
-SPEECH_BUDGET_MARGIN = 1.5
 
 # Note(Chenchen Hong): PyTorch sampling_seed must fit a positive int32.
 MAX_INT32_POSITIVE = 0x7FFFFFFF
@@ -171,32 +166,6 @@ def should_generate_audio_output(
     return modalities is None or "audio" in modalities
 
 
-def speech_token_budget(talker_max_new_tokens: int) -> int:
-    """The thinker tokens of a spoken reply whose slowest speech, with the margin, fits in talker_max_new_tokens codec frames; a thinker writes at least one."""
-    frames = talker_max_new_tokens / SPEECH_BUDGET_MARGIN
-    return max(
-        1,
-        math.floor(frames / SLOWEST_SPEECH_FRAMES_PER_TOKEN),
-        math.floor(
-            (frames - SLOWEST_LONG_SPEECH_FRAMES) / SLOWEST_LONG_SPEECH_FRAMES_PER_TOKEN
-        ),
-    )
-
-
-def thinker_max_new_tokens(params: Mapping[str, object], *, speaks: bool) -> int:
-    """The thinker's budget: its own, and for a spoken reply no more than its talker can say."""
-    budget = int(params.get("max_new_tokens", THINKER_DEFAULT_MAX_NEW_TOKENS))
-    if speaks:
-        return min(
-            budget,
-            speech_token_budget(
-                int(params.get("talker_max_new_tokens", TALKER_DEFAULT_MAX_NEW_TOKENS))
-            ),
-        )
-    else:
-        return budget
-
-
 def resolve_thinker_next_stages(
     request_id: str, output: StagePayload
 ) -> str | list[str]:
@@ -228,6 +197,9 @@ def resolve_thinker_stream_done_targets(
 
 def resolve_terminal_stages(request: OmniRequest) -> list[str]:
     if should_generate_audio_output(request):
+        thinker_max_new_tokens(
+            request.params or {}, speaks=True, reject_explicit_overflow=True
+        )
         return [DECODE_STAGE, CODE2WAV_STAGE]
     else:
         pass
