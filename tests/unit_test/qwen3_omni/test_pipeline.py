@@ -3349,15 +3349,16 @@ def test_top_level_media_precede_plain_text() -> None:
 
 
 @pytest.mark.parametrize(
-    ("config_cls", "modalities", "talker_max_new_tokens"),
+    ("config_cls", "modalities", "thinker_max_new_tokens", "talker_max_new_tokens"),
     [
-        (Qwen3OmniPipelineConfig, ["text"], None),
-        (Qwen3OmniSpeechPipelineConfig, ["text", "audio"], 8),
+        (Qwen3OmniPipelineConfig, ["text"], 8, None),
+        (Qwen3OmniSpeechPipelineConfig, ["text", "audio"], 1, 8),
     ],
 )
 def test_server_warmup_request_carries_an_image_and_a_second_of_audio(
     config_cls: type[Qwen3OmniPipelineConfig | Qwen3OmniSpeechPipelineConfig],
     modalities: list[str],
+    thinker_max_new_tokens: int,
     talker_max_new_tokens: int | None,
 ) -> None:
     config = config_cls(model_path="Qwen/Qwen3-Omni-30B-A3B-Instruct")
@@ -3374,7 +3375,7 @@ def test_server_warmup_request_carries_an_image_and_a_second_of_audio(
 
     assert request.modalities == modalities
     assert (request.max_tokens, request.talker_max_new_tokens) == (
-        8,
+        thinker_max_new_tokens,
         talker_max_new_tokens,
     )
     assert (len(media.images), len(media.audios), len(media.videos)) == (1, 1, 0)

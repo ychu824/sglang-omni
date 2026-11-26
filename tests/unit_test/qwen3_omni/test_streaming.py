@@ -132,6 +132,18 @@ def test_qwen_audio_output_uses_speech_active_subgraph():
     assert resolve_terminal_stages(payload.request) == ["decode", "code2wav"]
 
 
+def test_qwen_terminal_routing_rejects_explicit_token_overflow_for_audio() -> None:
+    """Only requests routed to audio are subject to the speech token limit."""
+    audio_payload = thinker_stage_payload(["text", "audio"])
+    text_payload = thinker_stage_payload(["text"])
+    audio_payload.request.params["max_new_tokens"] = 2000
+    text_payload.request.params["max_new_tokens"] = 2000
+
+    with pytest.raises(ValueError, match=r"requested 2000.*at most 483"):
+        resolve_terminal_stages(audio_payload.request)
+    assert resolve_terminal_stages(text_payload.request) == ["decode"]
+
+
 @pytest.mark.parametrize(
     ("speech_enabled", "output_modalities", "stream", "expected_targets"),
     [

@@ -227,6 +227,8 @@ The [shared request parameters](../basic_usage/omni.md#request-parameters) docum
 
 With `use_audio_in_video: true`, requests where all videos lack audio use video-only processing; mixing videos with and without audio is rejected. Audio decoding errors are reported.
 
+For speech-enabled chat with audio output, the Talker budget also determines an estimated upper limit for Thinker text tokens. The default of 4096 Talker tokens gives a limit of 483 text tokens. If the request omits both `max_tokens` and `max_completion_tokens`, the Thinker budget is the lower of 2048 and that limit. An explicit value above the limit returns HTTP 400 for non-streaming chat or an `invalid_request_error` event with code 400 for streaming chat. Lower the text limit, raise `talker_max_new_tokens`, or request only text.
+
 For HTTP and SSE errors, see [Known Limitations](../basic_usage/omni.md#known-limitations).
 
 ## Realtime Speech with Server-Side Turn Detection
